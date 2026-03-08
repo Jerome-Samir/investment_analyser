@@ -136,6 +136,7 @@ function Home() {
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
   const [includeBuyerAgent, setIncludeBuyerAgent] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -358,9 +359,18 @@ function Home() {
   const r = results;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex flex-col md:flex-row min-h-screen">
+      {/* Mobile toggle */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="md:hidden sticky top-0 z-20 flex items-center gap-2 w-full px-4 py-3 text-sm font-medium bg-[var(--card)] border-b border-[var(--border)]"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        {sidebarOpen ? "Hide Inputs" : "Show Inputs"}
+      </button>
+
       {/* Sidebar */}
-      <aside className="w-72 shrink-0 border-r border-[var(--border)] p-5 overflow-y-auto bg-[var(--card)]">
+      <aside className={`${sidebarOpen ? "block" : "hidden"} md:block w-full md:w-72 shrink-0 border-b md:border-b-0 md:border-r border-[var(--border)] p-5 overflow-y-auto bg-[var(--card)]`}>
         <h2 className="text-lg font-semibold mb-4">Inputs</h2>
 
         <NumberInput label="Property Price" value={price} onChange={setPrice} step={10_000} prefix="$" />
@@ -433,13 +443,13 @@ function Home() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 p-6 overflow-y-auto">
-        <h1 className="text-2xl font-bold mb-6">Investment Property Calculator</h1>
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+        <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Investment Property Calculator</h1>
 
         {/* Dashboard cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
           {/* Upfront Costs */}
-          <div className="rounded-lg border border-[var(--border)] p-5 bg-[var(--card)]">
+          <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
             <h3 className="text-base font-semibold mb-3">Upfront Costs</h3>
             <Metric label="Total Upfront" value={fmt(r.totalUpfront)} />
             <Table
@@ -468,7 +478,7 @@ function Home() {
           </div>
 
           {/* Yearly Cost */}
-          <div className="rounded-lg border border-[var(--border)] p-5 bg-[var(--card)]">
+          <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
             <h3 className="text-base font-semibold mb-3">After-Tax Yearly Cost</h3>
             <Metric
               label="Yearly Net (after tax)"
@@ -493,7 +503,7 @@ function Home() {
           </div>
 
           {/* Tax Impact */}
-          <div className="rounded-lg border border-[var(--border)] p-5 bg-[var(--card)]">
+          <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
             <h3 className="text-base font-semibold mb-3">Tax Impact</h3>
             <p className="text-xs text-[var(--muted)] mb-3">
               Negative Gearing (2024-25 rates + 2% Medicare)
@@ -520,8 +530,8 @@ function Home() {
         </div>
 
         {/* Charts Row 1 */}
-        <hr className="mb-6 border-[var(--border)]" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
           {/* Net Position vs Appreciation */}
           <div>
             <h4 className="text-sm font-semibold text-center mb-2">
@@ -658,8 +668,8 @@ function Home() {
         </div>
 
         {/* Charts Row 2 - Deposit Sensitivity */}
-        <hr className="mb-6 border-[var(--border)]" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           {/* Yearly Net vs Deposit */}
           <div>
             <h4 className="text-sm font-semibold text-center mb-2">
