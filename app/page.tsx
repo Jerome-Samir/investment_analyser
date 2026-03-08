@@ -60,7 +60,7 @@ function NumberInput({
           onChange={(e) => onChange(Number(e.target.value))}
           step={step}
           min={min}
-          className={prefix ? "pl-7" : ""}
+          style={{ paddingLeft: prefix ? "1.75rem" : undefined, paddingRight: suffix ? "2rem" : undefined }}
         />
         {suffix && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[var(--muted)]">
@@ -197,7 +197,7 @@ export default function Home() {
     // Break-even chart data
     const baseTaxableIncome = income - deductibleLoss;
     const steps = 61;
-    const appData: { rate: number; net: number }[] = [];
+    const appDataRaw: { rate: number; net: number }[] = [];
     let breakevenRate: number | null = null;
 
     for (let i = 0; i < steps; i++) {
@@ -208,18 +208,38 @@ export default function Home() {
       const taxWithoutCGT = calcTaxWithMedicare(baseTaxableIncome);
       const cgtOwed = taxWithCGT - taxWithoutCGT;
       const netPosition = yearlyAfterTax + yearlyApp - cgtOwed;
-      appData.push({ rate: Math.round(appRate * 100) / 100, net: Math.round(netPosition) });
+      appDataRaw.push({ rate: Math.round(appRate * 100) / 100, net: Math.round(netPosition) });
 
       if (i > 0 && breakevenRate === null) {
-        const prev = appData[i - 1].net;
+        const prev = appDataRaw[i - 1].net;
         if (prev < 0 && netPosition >= 0) {
           const t = -prev / (netPosition - prev);
           breakevenRate =
-            appData[i - 1].rate + t * (appRate - appData[i - 1].rate);
+            appDataRaw[i - 1].rate + t * (appRate - appDataRaw[i - 1].rate);
         }
       }
     }
-    if (appData.length > 0 && appData[0].net >= 0) breakevenRate = 0;
+    if (appDataRaw.length > 0 && appDataRaw[0].net >= 0) breakevenRate = 0;
+
+    // Insert breakeven point into data so the dot renders and colors split cleanly
+    if (breakevenRate !== null && breakevenRate > 0) {
+      const beRateRounded = Math.round(breakevenRate * 100) / 100;
+      const insertIdx = appDataRaw.findIndex((d) => d.rate >= beRateRounded);
+      if (insertIdx >= 0 && appDataRaw[insertIdx].rate !== beRateRounded) {
+        appDataRaw.splice(insertIdx, 0, { rate: beRateRounded, net: 0 });
+      }
+    }
+
+    // Split into negNet / posNet series for red/green coloring
+    const allPositive = appDataRaw.length > 0 && appDataRaw[0].net >= 0;
+    const allNegative = breakevenRate === null && !allPositive;
+    const beRateRoundedVal = breakevenRate !== null ? Math.round(breakevenRate * 100) / 100 : -1;
+    const appData = appDataRaw.map((d) => ({
+      rate: d.rate,
+      net: d.net,
+      negNet: allPositive ? undefined : (allNegative || d.rate <= beRateRoundedVal) ? d.net : undefined as number | undefined,
+      posNet: allNegative ? undefined : (allPositive || d.rate >= beRateRoundedVal) ? d.net : undefined as number | undefined,
+    }));
 
     // Break-even vs rent difference
     const currentRentDiff = weeklyRent - weeklyRental;
@@ -511,15 +531,37 @@ export default function Home() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="rate" tick={{ fontSize: 12 }} label={{ value: "Appreciation %", position: "insideBottom", offset: -2, fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={dollarFormatter} labelFormatter={(v: number) => `${v}%`} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const net = payload.find((p) => p.value !== undefined);
+                    if (!net) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs shadow">
+                        <div className="text-[var(--muted)]">{label}%</div>
+                        <div className="font-medium">{fmt(net.value as number)}</div>
+                      </div>
+                    );
+                  }}
+                />
                 <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
                 <Line
                   type="monotone"
-                  dataKey="net"
-                  stroke="#3b82f6"
+                  dataKey="negNet"
+                  stroke="#dc2626"
                   strokeWidth={2.5}
                   dot={false}
                   name="Net Position"
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="posNet"
+                  stroke="#16a34a"
+                  strokeWidth={2.5}
+                  dot={false}
+                  name="Net Position"
+                  connectNulls={false}
                 />
                 {r.breakevenRate !== null && (
                   <ReferenceDot
