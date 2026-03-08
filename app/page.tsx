@@ -324,6 +324,18 @@ function Home() {
       };
     });
 
+    // Compute dynamic break-even tick ranges from actual data
+    const beTicks = (data: { breakeven: number }[]) => {
+      if (data.length === 0) return [];
+      const min = Math.floor(Math.min(...data.map((d) => d.breakeven)) * 2) / 2;
+      const max = Math.ceil(Math.max(...data.map((d) => d.breakeven)) * 2) / 2;
+      const ticks: number[] = [];
+      for (let v = min; v <= max + 0.01; v += 0.5) ticks.push(Math.round(v * 10) / 10);
+      return ticks;
+    };
+    const rdBETicks = beTicks(rdData);
+    const ppBETicks = beTicks(ppData);
+
     return {
       lmi,
       effectiveCapitaliseLMI,
@@ -353,6 +365,8 @@ function Home() {
       ppData,
       depData,
       isApartment,
+      rdBETicks,
+      ppBETicks,
     };
   }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent]);
 
@@ -540,8 +554,8 @@ function Home() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={r.appData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="rate" tick={{ fontSize: 12 }} label={{ value: "Appreciation %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="rate" tick={{ fontSize: 12 }} ticks={[0,2,4,6,8,10,12,14,16,18,20]} label={{ value: "Appreciation %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Net Position ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -604,8 +618,8 @@ function Home() {
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={r.rdData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="breakeven" tick={{ fontSize: 12 }} label={{ value: "Break-Even %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                    <YAxis dataKey="rentDiff" tick={{ fontSize: 12 }} label={{ value: "$/wk", angle: -90, position: "insideLeft", fontSize: 12 }} />
+                    <XAxis dataKey="breakeven" tick={{ fontSize: 12 }} type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => v.toFixed(1)} ticks={r.rdBETicks} label={{ value: "Break-Even %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis dataKey="rentDiff" tick={{ fontSize: 12 }} label={{ value: "Rent Diff ($/wk)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                     <Tooltip />
                     <Line type="monotone" dataKey="rentDiff" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Rent Diff" />
                     {r.breakevenRate !== null && (
@@ -640,8 +654,8 @@ function Home() {
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={r.ppData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="breakeven" tick={{ fontSize: 12 }} label={{ value: "Break-Even %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                    <YAxis dataKey="price" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                    <XAxis dataKey="breakeven" tick={{ fontSize: 12 }} type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => v.toFixed(1)} ticks={r.ppBETicks} label={{ value: "Break-Even %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis dataKey="price" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Property Price ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                     <Tooltip formatter={dollarFormatter} />
                     <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Property Price" />
                     {r.breakevenRate !== null && (
@@ -678,8 +692,8 @@ function Home() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={r.depData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} ticks={[6,8,10,12,14,16,18,20,22,24,26,28,30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Yearly Net ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                 <Tooltip formatter={dollarFormatter} />
                 <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
                 <Line type="monotone" dataKey="yearlyNet" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Yearly Net" />
@@ -696,8 +710,8 @@ function Home() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={r.depData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} ticks={[6,8,10,12,14,16,18,20,22,24,26,28,30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Upfront Cost ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                 <Tooltip formatter={dollarFormatter} />
                 <Line type="monotone" dataKey="upfront" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Upfront Cost" />
                 <ReferenceDot x={depositPct} y={r.totalUpfront} r={5} fill="#333" stroke="none" />
@@ -714,8 +728,8 @@ function Home() {
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={r.depData.filter((d) => d.breakeven !== null)}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
+                  <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} ticks={[6,8,10,12,14,16,18,20,22,24,26,28,30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} label={{ value: "Break-Even (%)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
                   <Tooltip />
                   <Line type="monotone" dataKey="breakeven" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Break-Even %" />
                   {r.breakevenRate !== null && (
