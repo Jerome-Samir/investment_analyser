@@ -3,8 +3,6 @@ App to analyse the financials involved in purchasing an investment property whil
 
 ## Running
 
-**Static version:** Open `index.html` in a browser.
-
 **Streamlit version:**
 ```
 pip install streamlit altair pandas numpy
