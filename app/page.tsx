@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useMemo } from "react";
 import {
   LineChart,
@@ -124,7 +125,7 @@ function dollarFormatter(value: number) {
 
 // ─── Main Page ───
 
-export default function Home() {
+function Home() {
   const [price, setPrice] = useState(850_000);
   const [depositPct, setDepositPct] = useState(5);
   const [capitaliseLMI, setCapitaliseLMI] = useState(true);
@@ -727,3 +728,5 @@ export default function Home() {
     </div>
   );
 }
+
+export default dynamic(() => Promise.resolve(Home), { ssr: false });
