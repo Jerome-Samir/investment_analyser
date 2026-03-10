@@ -5,10 +5,16 @@ import { useState, useMemo } from "react";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  AreaChart,
+  Area,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ReferenceLine,
   ReferenceDot,
   ResponsiveContainer,
@@ -19,8 +25,13 @@ import {
   calcTaxWithMedicare,
   marginalRate,
   computeBreakeven,
+  compute10YearProjection,
+  computeRateStressTest,
+  computeBreakevenVsRate,
+  computeCoCVsDeposit,
   fmt,
   signedFmt,
+  pctFmt,
   MORTGAGE_REGISTRATION_FEE,
   TRANSFER_FEE,
   LEGAL_FEES,
@@ -137,6 +148,8 @@ function Home() {
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
   const [includeBuyerAgent, setIncludeBuyerAgent] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [appreciationRate, setAppreciationRate] = useState(4);
+  const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -336,6 +349,45 @@ function Home() {
     const rdBETicks = beTicks(rdData);
     const ppBETicks = beTicks(ppData);
 
+    // ─── New Professional Metrics ───
+    const grossYield = price > 0 ? ((weeklyRental * 52) / price) * 100 : 0;
+    const noi =
+      yearlyRentalIncome -
+      yearlyRentalAgentFee -
+      yearlyInsurance -
+      yearlyCouncilWater -
+      yearlyStrata;
+    const netYield = price > 0 ? (noi / price) * 100 : 0;
+    const cashOnCash = totalUpfront > 0 ? (yearlyAfterTax / totalUpfront) * 100 : 0;
+    const dscr = yearlyInterest > 0 ? noi / yearlyInterest : 0;
+    const lvr = 100 - depositPct;
+
+    // 10-year projection
+    const tenYearData = compute10YearProjection(
+      price, weeklyRental, weeklyRent, income, rate, depositPct,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment, totalUpfront,
+      appreciationRate, rentalGrowthRate,
+    );
+
+    // Interest rate stress test
+    const rateStressData = computeRateStressTest(
+      price, weeklyRental, weeklyRent, income, depositPct,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment,
+    );
+
+    // Break-even vs interest rate
+    const beVsRateData = computeBreakevenVsRate(
+      price, weeklyRental, weeklyRent, income, depositPct,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment,
+    );
+
+    // Cash-on-cash return vs deposit
+    const cocVsDepositData = computeCoCVsDeposit(
+      price, weeklyRental, weeklyRent, income, rate,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment,
+      stampDuty, includeBuyerAgent,
+    );
+
     return {
       lmi,
       effectiveCapitaliseLMI,
@@ -367,8 +419,18 @@ function Home() {
       isApartment,
       rdBETicks,
       ppBETicks,
+      grossYield,
+      netYield,
+      cashOnCash,
+      dscr,
+      lvr,
+      noi,
+      tenYearData,
+      rateStressData,
+      beVsRateData,
+      cocVsDepositData,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate]);
 
   const r = results;
 
@@ -453,6 +515,35 @@ function Home() {
             onChange={(e) => setIncludeBuyerAgent(e.target.checked)}
           />
           Include Buyer&apos;s Agent Fee (2%)
+        </label>
+
+        <hr className="my-4 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">Projection Assumptions</h2>
+
+        <label className="block mb-1">
+          <span className="text-sm font-medium">Capital Growth: {appreciationRate}% p.a.</span>
+          <input
+            type="range"
+            min={0}
+            max={10}
+            step={0.5}
+            value={appreciationRate}
+            onChange={(e) => setAppreciationRate(Number(e.target.value))}
+            className="mt-1"
+          />
+        </label>
+
+        <label className="block mb-1">
+          <span className="text-sm font-medium">Rental Growth: {rentalGrowthRate}% p.a.</span>
+          <input
+            type="range"
+            min={0}
+            max={8}
+            step={0.5}
+            value={rentalGrowthRate}
+            onChange={(e) => setRentalGrowthRate(Number(e.target.value))}
+            className="mt-1"
+          />
         </label>
       </aside>
 
@@ -540,6 +631,40 @@ function Home() {
                 ["Take home (monthly)", fmt(r.takeHomeYearly / 12)],
               ]}
             />
+          </div>
+        </div>
+
+        {/* Investment Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Gross Yield</div>
+            <div className="text-xl font-bold tabular-nums">{pctFmt(r.grossYield)}</div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Net Yield</div>
+            <div className="text-xl font-bold tabular-nums">{pctFmt(r.netYield)}</div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Cash-on-Cash</div>
+            <div className={`text-xl font-bold tabular-nums ${r.cashOnCash >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+              {pctFmt(r.cashOnCash)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">DSCR</div>
+            <div className={`text-xl font-bold tabular-nums ${r.dscr >= 1 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+              {r.dscr.toFixed(2)}x
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">LVR</div>
+            <div className="text-xl font-bold tabular-nums">{r.lvr}%</div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">NOI (yearly)</div>
+            <div className={`text-xl font-bold tabular-nums ${r.noi >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+              {fmt(r.noi)}
+            </div>
           </div>
         </div>
 
@@ -747,6 +872,287 @@ function Home() {
               <p className="text-sm text-[var(--muted)] text-center py-20">Insufficient data</p>
             )}
           </div>
+        </div>
+
+        {/* Charts Row 3 - 10-Year Projections */}
+        <hr className="my-4 md:my-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">10-Year Projections ({appreciationRate}% growth, {rentalGrowthRate}% rental growth)</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+          {/* Yearly Cash Flow (Bar Chart) */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Annual Cash Flow (incl. Year 0 Upfront)
+            </h4>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={r.tenYearData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Cash Flow ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">Year {label}</div>
+                        {payload.map((p, i) => (
+                          <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} />
+                <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
+                <Bar dataKey="netCashFlow" name="Net Cash Flow" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                <Line type="monotone" dataKey="cumulativeCashFlow" name="Cumulative" stroke="#f59e0b" strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              {(() => {
+                const breakEvenYear = r.tenYearData.find((d, i) => i > 0 && d.cumulativeCashFlow >= 0);
+                return breakEvenYear
+                  ? `Cash break-even in Year ${breakEvenYear.year}`
+                  : "Cash position remains negative over 10 years";
+              })()}
+            </p>
+          </div>
+
+          {/* Equity Growth */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Equity Position Over 10 Years
+            </h4>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={r.tenYearData.filter(d => d.year > 0)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Value ($)", angle: -90, position: "center", dx: -30, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">Year {label}</div>
+                        {payload.map((p, i) => (
+                          <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} />
+                <Area type="monotone" dataKey="propertyValue" name="Property Value" stroke="#16a34a" fill="#16a34a" fillOpacity={0.15} strokeWidth={2} />
+                <Area type="monotone" dataKey="loanBalance" name="Loan Balance" stroke="#dc2626" fill="#dc2626" fillOpacity={0.1} strokeWidth={2} />
+                <Area type="monotone" dataKey="equity" name="Equity" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              Year 10 equity: {fmt(r.tenYearData[10]?.equity ?? 0)} (interest-only loan)
+            </p>
+          </div>
+
+          {/* Total Return (Cash Flow + Capital Gains) */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Total Return (Cash + Capital Gains)
+            </h4>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={r.tenYearData.filter(d => d.year > 0)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Return ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">Year {label}</div>
+                        {payload.map((p, i) => (
+                          <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} />
+                <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
+                <Bar dataKey="cumulativeCashFlow" name="Cumulative Cash" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                <Line type="monotone" dataKey="totalReturn" name="Total Return" stroke="#16a34a" strokeWidth={2.5} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              Year 10 total return: {signedFmt(r.tenYearData[10]?.totalReturn ?? 0)}
+            </p>
+          </div>
+        </div>
+
+        {/* Charts Row 4 - Rate Sensitivity & Advanced */}
+        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">Interest Rate & Return Analysis</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+          {/* Interest Rate Stress Test */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Interest Rate Stress Test
+            </h4>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={r.rateStressData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="rate" tick={{ fontSize: 12 }} label={{ value: "Interest Rate (%)", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Yearly Net ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} label={{ value: "DSCR", angle: 90, position: "center", dx: 20, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">{label}% rate</div>
+                        {payload.map((p, i) => (
+                          <div key={i} style={{ color: p.color }}>
+                            {p.name}: {p.name === "DSCR" ? `${(p.value as number).toFixed(2)}x` : fmt(p.value as number)}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} />
+                <ReferenceLine yAxisId="left" y={0} stroke="var(--muted)" strokeDasharray="4 4" />
+                <ReferenceLine yAxisId="right" y={1} stroke="#dc2626" strokeDasharray="4 4" strokeWidth={1.5} />
+                <Bar yAxisId="left" dataKey="yearlyNet" name="Yearly Net" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                <Line yAxisId="right" type="monotone" dataKey="dscr" name="DSCR" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                <ReferenceDot yAxisId="left" x={rate} y={r.rateStressData.find(d => d.rate === rate)?.yearlyNet ?? 0} r={5} fill="#333" stroke="none" />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              Current rate: {rate}% | DSCR &lt; 1.0 = rental income doesn&apos;t cover debt
+            </p>
+          </div>
+
+          {/* Break-Even vs Interest Rate */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Break-Even Appreciation vs Interest Rate
+            </h4>
+            {r.beVsRateData.length >= 2 ? (
+              <>
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={r.beVsRateData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="rate" tick={{ fontSize: 12 }} label={{ value: "Interest Rate (%)", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} label={{ value: "Break-Even Appr. (%)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                            <div className="font-medium mb-1">{label}% interest</div>
+                            <div>Break-even: {(payload[0].value as number).toFixed(2)}%</div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Line type="monotone" dataKey="breakeven" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Break-Even %" />
+                    {r.breakevenRate !== null && (
+                      <ReferenceDot
+                        x={rate}
+                        y={Math.round(r.breakevenRate * 100) / 100}
+                        r={5}
+                        fill="#333"
+                        stroke="none"
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-[var(--muted)] text-center mt-1">
+                  Higher rates require more appreciation to break even
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-[var(--muted)] text-center py-20">Insufficient data</p>
+            )}
+          </div>
+
+          {/* Cash-on-Cash Return vs Deposit */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Cash-on-Cash Return vs Deposit %
+            </h4>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={r.cocVsDepositData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} ticks={[6,8,10,12,14,16,18,20,22,24,26,28,30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${v.toFixed(1)}%`} label={{ value: "Cash-on-Cash (%)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">{label}% deposit</div>
+                        <div>CoC: {(payload[0].value as number).toFixed(2)}%</div>
+                      </div>
+                    );
+                  }}
+                />
+                <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
+                <Line type="monotone" dataKey="coc" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Cash-on-Cash %" />
+                <ReferenceDot
+                  x={depositPct}
+                  y={r.cocVsDepositData.find(d => d.deposit === depositPct)?.coc ?? 0}
+                  r={5}
+                  fill="#333"
+                  stroke="none"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              Current: {pctFmt(r.cashOnCash)} (negative = paying out of pocket)
+            </p>
+          </div>
+        </div>
+
+        {/* 10-Year Cash Flow Table */}
+        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">10-Year Cash Flow Summary</h2>
+        <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)] mb-6">
+          <table className="w-full text-xs md:text-sm border-collapse min-w-[800px]">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+                <th className="py-2 px-3 text-left font-semibold">Year</th>
+                <th className="py-2 px-3 text-right font-semibold">Rental Income</th>
+                <th className="py-2 px-3 text-right font-semibold">Expenses</th>
+                <th className="py-2 px-3 text-right font-semibold">Interest</th>
+                <th className="py-2 px-3 text-right font-semibold">Tax Benefit</th>
+                <th className="py-2 px-3 text-right font-semibold">Net Cash Flow</th>
+                <th className="py-2 px-3 text-right font-semibold">Cumulative</th>
+                <th className="py-2 px-3 text-right font-semibold">Property Value</th>
+                <th className="py-2 px-3 text-right font-semibold">Equity</th>
+                <th className="py-2 px-3 text-right font-semibold">Total Return</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.tenYearData.map((row) => (
+                <tr key={row.year} className={`border-b border-[var(--border)] ${row.year === 0 ? "bg-[var(--bg)] font-semibold" : ""}`}>
+                  <td className="py-1.5 px-3">{row.year === 0 ? "Purchase" : `Year ${row.year}`}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.rentalIncome)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.expenses)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.interest)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.taxBenefit)}</td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.netCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.netCashFlow)}
+                  </td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.cumulativeCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.cumulativeCashFlow)}
+                  </td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.propertyValue)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.equity)}</td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${row.totalReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.totalReturn)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </main>
     </div>

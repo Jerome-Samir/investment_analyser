@@ -131,3 +131,251 @@ export function signedFmt(n: number): string {
   const prefix = n >= 0 ? "+" : "-";
   return `${prefix}${fmt(n)}`;
 }
+
+export function pctFmt(n: number, decimals = 2): string {
+  return `${n.toFixed(decimals)}%`;
+}
+
+// 10-Year cash flow projection
+export interface YearlyCashFlow {
+  year: number;
+  rentalIncome: number;
+  expenses: number;
+  interest: number;
+  taxBenefit: number;
+  netCashFlow: number;
+  cumulativeCashFlow: number;
+  propertyValue: number;
+  loanBalance: number;
+  equity: number;
+  totalReturn: number;
+}
+
+export function compute10YearProjection(
+  price: number,
+  weeklyRental: number,
+  weeklyRent: number,
+  income: number,
+  rate: number,
+  depositPct: number,
+  capitaliseLMI: boolean,
+  yearlyStrata: number,
+  isApartment: boolean,
+  totalUpfront: number,
+  appreciationRate: number,
+  rentalGrowthRate: number,
+): YearlyCashFlow[] {
+  const lmi = calcLMI(price, depositPct);
+  const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
+  const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
+  const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+
+  const results: YearlyCashFlow[] = [];
+  let cumulativeCash = -totalUpfront;
+
+  // Year 0 entry (purchase)
+  results.push({
+    year: 0,
+    rentalIncome: 0,
+    expenses: 0,
+    interest: 0,
+    taxBenefit: 0,
+    netCashFlow: -totalUpfront,
+    cumulativeCashFlow: cumulativeCash,
+    propertyValue: price,
+    loanBalance: mortgage,
+    equity: price - mortgage,
+    totalReturn: -totalUpfront,
+  });
+
+  for (let y = 1; y <= 10; y++) {
+    const currentRental = weeklyRental * Math.pow(1 + rentalGrowthRate / 100, y - 1);
+    const currentRent = weeklyRent * Math.pow(1 + rentalGrowthRate / 100, y - 1);
+    const yearlyRentalIncome = currentRental * 52;
+    const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
+    const yearlyInterest = mortgage * (rate / 100);
+    const yearlyRent = currentRent * 52;
+
+    const totalExpenses =
+      yearlyRentalAgentFee +
+      yearlyInsurance +
+      yearlyCouncilWater +
+      yearlyStrata +
+      yearlyRent;
+
+    const propertyNet =
+      yearlyRentalIncome -
+      yearlyRentalAgentFee -
+      yearlyInsurance -
+      yearlyCouncilWater -
+      yearlyStrata -
+      yearlyInterest;
+    const deductibleLoss = Math.max(0, -propertyNet);
+    const taxSaving =
+      calcTaxWithMedicare(income) -
+      calcTaxWithMedicare(income - deductibleLoss);
+
+    const yearlyPreTax =
+      yearlyRentalIncome -
+      totalExpenses -
+      yearlyInterest;
+    const netCashFlow = yearlyPreTax + taxSaving;
+    cumulativeCash += netCashFlow;
+
+    const propertyValue = price * Math.pow(1 + appreciationRate / 100, y);
+    const equity = propertyValue - mortgage;
+
+    results.push({
+      year: y,
+      rentalIncome: Math.round(yearlyRentalIncome),
+      expenses: Math.round(totalExpenses),
+      interest: Math.round(yearlyInterest),
+      taxBenefit: Math.round(taxSaving),
+      netCashFlow: Math.round(netCashFlow),
+      cumulativeCashFlow: Math.round(cumulativeCash),
+      propertyValue: Math.round(propertyValue),
+      loanBalance: Math.round(mortgage),
+      equity: Math.round(equity),
+      totalReturn: Math.round(cumulativeCash + (propertyValue - price)),
+    });
+  }
+
+  return results;
+}
+
+// Interest rate stress test data
+export interface RateStressPoint {
+  rate: number;
+  yearlyNet: number;
+  monthlyCashFlow: number;
+  dscr: number;
+}
+
+export function computeRateStressTest(
+  price: number,
+  weeklyRental: number,
+  weeklyRent: number,
+  income: number,
+  depositPct: number,
+  capitaliseLMI: boolean,
+  yearlyStrata: number,
+  isApartment: boolean,
+): RateStressPoint[] {
+  const lmi = calcLMI(price, depositPct);
+  const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
+  const yearlyRentalIncome = weeklyRental * 52;
+  const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
+  const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
+  const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+  const yearlyRent = weeklyRent * 52;
+
+  const results: RateStressPoint[] = [];
+  for (let r = 200; r <= 1000; r += 25) {
+    const rateDecimal = r / 100;
+    const yearlyInterest = mortgage * (rateDecimal / 100);
+    const yearlyPreTax =
+      yearlyRentalIncome -
+      yearlyRentalAgentFee -
+      yearlyInsurance -
+      yearlyCouncilWater -
+      yearlyStrata -
+      yearlyRent -
+      yearlyInterest;
+
+    const propertyNet =
+      yearlyRentalIncome -
+      yearlyRentalAgentFee -
+      yearlyInsurance -
+      yearlyCouncilWater -
+      yearlyStrata -
+      yearlyInterest;
+    const deductibleLoss = Math.max(0, -propertyNet);
+    const taxSaving =
+      calcTaxWithMedicare(income) -
+      calcTaxWithMedicare(income - deductibleLoss);
+    const yearlyAfterTax = yearlyPreTax + taxSaving;
+
+    const noi = yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance - yearlyCouncilWater - yearlyStrata;
+    const dscr = yearlyInterest > 0 ? noi / yearlyInterest : 999;
+
+    results.push({
+      rate: rateDecimal,
+      yearlyNet: Math.round(yearlyAfterTax),
+      monthlyCashFlow: Math.round(yearlyAfterTax / 12),
+      dscr: Math.round(dscr * 100) / 100,
+    });
+  }
+  return results;
+}
+
+// Compute break-even at different interest rates
+export function computeBreakevenVsRate(
+  price: number,
+  weeklyRental: number,
+  weeklyRent: number,
+  income: number,
+  depositPct: number,
+  capitaliseLMI: boolean,
+  yearlyStrata: number,
+  isApartment: boolean,
+): { rate: number; breakeven: number }[] {
+  const results: { rate: number; breakeven: number }[] = [];
+  for (let r = 200; r <= 1000; r += 25) {
+    const rateDecimal = r / 100;
+    const be = computeBreakeven(
+      price, weeklyRental, weeklyRent, income, rateDecimal,
+      depositPct, capitaliseLMI, yearlyStrata, isApartment,
+    );
+    if (be !== null) {
+      results.push({ rate: rateDecimal, breakeven: Math.round(be * 100) / 100 });
+    }
+  }
+  return results;
+}
+
+// Cash-on-cash return vs deposit %
+export function computeCoCVsDeposit(
+  price: number,
+  weeklyRental: number,
+  weeklyRent: number,
+  income: number,
+  rate: number,
+  capitaliseLMI: boolean,
+  yearlyStrata: number,
+  isApartment: boolean,
+  stampDuty: number,
+  includeBuyerAgent: boolean,
+): { deposit: number; coc: number; upfront: number }[] {
+  const results: { deposit: number; coc: number; upfront: number }[] = [];
+  for (let dp = 5; dp <= 30; dp++) {
+    const dpLmi = calcLMI(price, dp);
+    const effectiveCap = dp < 20 ? capitaliseLMI : false;
+    const dpMortgage = price * (1 - dp / 100) + (effectiveCap ? dpLmi : 0);
+    const yearlyInterest = dpMortgage * (rate / 100);
+    const yearlyRentalIncome = weeklyRental * 52;
+    const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
+    const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
+    const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+    const yearlyRent = weeklyRent * 52;
+    const yearlyPreTax =
+      yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
+      yearlyCouncilWater - yearlyStrata - yearlyRent - yearlyInterest;
+
+    const propertyNet =
+      yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
+      yearlyCouncilWater - yearlyStrata - yearlyInterest;
+    const deductibleLoss = Math.max(0, -propertyNet);
+    const taxSaving = calcTaxWithMedicare(income) - calcTaxWithMedicare(income - deductibleLoss);
+    const yearlyAfterTax = yearlyPreTax + taxSaving;
+
+    const dpDeposit = (price * dp) / 100;
+    const dpLmiUpfront = effectiveCap ? 0 : dpLmi;
+    const buyerAgentFee = includeBuyerAgent ? price * 0.02 : 0;
+    const totalUpfront = dpDeposit + stampDuty + dpLmiUpfront + buyerAgentFee +
+      MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE + LEGAL_FEES;
+
+    const coc = totalUpfront > 0 ? (yearlyAfterTax / totalUpfront) * 100 : 0;
+    results.push({ deposit: dp, coc: Math.round(coc * 100) / 100, upfront: Math.round(totalUpfront) });
+  }
+  return results;
+}
