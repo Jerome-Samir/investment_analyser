@@ -128,6 +128,21 @@ function Metric({
   );
 }
 
+// ─── Info Tooltip ───
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex ml-1 group">
+      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-[var(--muted)] text-[var(--muted)] text-[10px] leading-none cursor-help select-none">
+        ?
+      </span>
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-52 rounded border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs text-[var(--fg)] shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-30 normal-case tracking-normal font-normal leading-snug">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 // ─── Custom tooltip formatter ───
 
 function dollarFormatter(value: number) {
@@ -635,41 +650,53 @@ function Home() {
         </div>
 
         {/* Investment Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8">
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Gross Yield</div>
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Gross Yield
+              <InfoTip text="Annual rental income as a percentage of the property purchase price, before any expenses. A quick gauge of income return." />
+            </div>
             <div className="text-xl font-bold tabular-nums">{pctFmt(r.grossYield)}</div>
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Net Yield</div>
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Net Yield
+              <InfoTip text="Net Operating Income (after property expenses but before debt service) as a percentage of purchase price. Also known as cap rate." />
+            </div>
             <div className="text-xl font-bold tabular-nums">{pctFmt(r.netYield)}</div>
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Cash-on-Cash</div>
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              NOI (yearly)
+              <InfoTip text="Net Operating Income. Annual rental income minus property expenses (agent fees, insurance/strata, council, water) but before interest and tax. The core profitability of the property itself." />
+            </div>
+            <div className={`text-xl font-bold tabular-nums ${r.noi >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+              {fmt(r.noi)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Cash-on-Cash
+              <InfoTip text="After-tax annual cash flow divided by total cash invested (deposit + upfront costs). Measures the return on your actual out-of-pocket investment." />
+            </div>
             <div className={`text-xl font-bold tabular-nums ${r.cashOnCash >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
               {pctFmt(r.cashOnCash)}
             </div>
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">DSCR</div>
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              DSCR
+              <InfoTip text="Debt Service Coverage Ratio. NOI divided by annual interest payments. Above 1.0x means rental income covers debt costs; below 1.0x means it doesn't. Lenders typically require 1.2x+." />
+            </div>
             <div className={`text-xl font-bold tabular-nums ${r.dscr >= 1 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
               {r.dscr.toFixed(2)}x
-            </div>
-          </div>
-          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">LVR</div>
-            <div className="text-xl font-bold tabular-nums">{r.lvr}%</div>
-          </div>
-          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">NOI (yearly)</div>
-            <div className={`text-xl font-bold tabular-nums ${r.noi >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-              {fmt(r.noi)}
             </div>
           </div>
         </div>
 
         {/* Charts Row 1 */}
         <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">Break-Even Sensitivity Analysis</h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
           {/* Net Position vs Appreciation */}
           <div>
@@ -808,6 +835,7 @@ function Home() {
 
         {/* Charts Row 2 - Deposit Sensitivity */}
         <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">Deposit Sensitivity</h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           {/* Yearly Net vs Deposit */}
           <div>
