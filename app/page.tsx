@@ -153,12 +153,12 @@ function dollarFormatter(value: number) {
 // ─── Main Page ───
 
 function Home() {
-  const [price, setPrice] = useState(850_000);
-  const [depositPct, setDepositPct] = useState(5);
+  const [price, setPrice] = useState(700_000);
+  const [depositPct, setDepositPct] = useState(20);
   const [capitaliseLMI, setCapitaliseLMI] = useState(true);
-  const [weeklyRental, setWeeklyRental] = useState(600);
-  const [weeklyRent, setWeeklyRent] = useState(850);
-  const [income, setIncome] = useState(110_000);
+  const [weeklyRental, setWeeklyRental] = useState(500);
+  const [weeklyRent, setWeeklyRent] = useState(0);
+  const [income, setIncome] = useState(100_000);
   const [rate, setRate] = useState(6.1);
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
