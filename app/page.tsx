@@ -22,6 +22,7 @@ import {
 import {
   calcLMI,
   calcStampDutyNSW,
+  calcLandTaxNSW,
   calcTaxWithMedicare,
   marginalRate,
   computeBreakeven,
@@ -170,6 +171,8 @@ function Home() {
     const isApartment = propertyType === "Apartment";
     const yearlyStrata = isApartment ? quarterlyStrata * 4 : 0;
     const monthlyStrata = yearlyStrata / 12;
+    const yearlyLandTax = isApartment ? 0 : calcLandTaxNSW(price * 0.6);
+    const monthlyLandTax = yearlyLandTax / 12;
 
     const lmi = calcLMI(price, depositPct);
     const effectiveCapitaliseLMI = depositPct < 20 ? capitaliseLMI : false;
@@ -186,6 +189,7 @@ function Home() {
       monthlyInsurance -
       MONTHLY_COUNCIL_WATER -
       monthlyStrata -
+      monthlyLandTax -
       monthlyRentSpend -
       monthlyInterest;
     const yearlyPreTax = monthlyNet * 12;
@@ -200,6 +204,7 @@ function Home() {
       yearlyInsurance -
       yearlyCouncilWater -
       yearlyStrata -
+      yearlyLandTax -
       yearlyInterest;
     const deductibleLoss = Math.max(0, -propertyNet);
 
@@ -282,7 +287,7 @@ function Home() {
       if (wr < 0) continue;
       const be = computeBreakeven(
         price, weeklyRental, wr, income, rate, depositPct,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
       );
       if (be !== null) rdData.push({ rentDiff: Math.round(rd), breakeven: Math.round(be * 100) / 100 });
     }
@@ -295,7 +300,7 @@ function Home() {
       const pp = pMin + ((pMax - pMin) * pi) / 80;
       const be = computeBreakeven(
         pp, weeklyRental, weeklyRent, income, rate, depositPct,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
       );
       if (be !== null) ppData.push({ price: Math.round(pp), breakeven: Math.round(be * 100) / 100 });
     }
@@ -313,6 +318,7 @@ function Home() {
         yearlyInsurance -
         yearlyCouncilWater -
         yearlyStrata -
+        yearlyLandTax -
         weeklyRent * 52 -
         dpYearlyInterest;
       const dpPropertyNet =
@@ -321,6 +327,7 @@ function Home() {
         yearlyInsurance -
         yearlyCouncilWater -
         yearlyStrata -
+        yearlyLandTax -
         dpYearlyInterest;
       const dpDeductibleLoss = Math.max(0, -dpPropertyNet);
       const dpTaxSaving =
@@ -341,7 +348,7 @@ function Home() {
 
       const be = computeBreakeven(
         price, weeklyRental, weeklyRent, income, rate, dp,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
       );
 
       return {
@@ -371,7 +378,8 @@ function Home() {
       yearlyRentalAgentFee -
       yearlyInsurance -
       yearlyCouncilWater -
-      yearlyStrata;
+      yearlyStrata -
+      yearlyLandTax;
     const netYield = price > 0 ? (noi / price) * 100 : 0;
     const cashOnCash = totalUpfront > 0 ? (yearlyAfterTax / totalUpfront) * 100 : 0;
     const dscr = yearlyInterest > 0 ? noi / yearlyInterest : 0;
@@ -381,26 +389,26 @@ function Home() {
     const tenYearData = compute10YearProjection(
       price, weeklyRental, weeklyRent, income, rate, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, totalUpfront,
-      appreciationRate, rentalGrowthRate,
+      appreciationRate, rentalGrowthRate, yearlyLandTax,
     );
 
     // Interest rate stress test
     const rateStressData = computeRateStressTest(
       price, weeklyRental, weeklyRent, income, depositPct,
-      effectiveCapitaliseLMI, yearlyStrata, isApartment,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
     );
 
     // Break-even vs interest rate
     const beVsRateData = computeBreakevenVsRate(
       price, weeklyRental, weeklyRent, income, depositPct,
-      effectiveCapitaliseLMI, yearlyStrata, isApartment,
+      effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
     );
 
     // Cash-on-cash return vs deposit
     const cocVsDepositData = computeCoCVsDeposit(
       price, weeklyRental, weeklyRent, income, rate,
       effectiveCapitaliseLMI, yearlyStrata, isApartment,
-      stampDuty, includeBuyerAgent,
+      stampDuty, includeBuyerAgent, yearlyLandTax,
     );
 
     return {
@@ -412,6 +420,7 @@ function Home() {
       monthlyRentalAgentFee,
       monthlyInsurance,
       monthlyStrata,
+      monthlyLandTax,
       monthlyRentSpend,
       monthlyNet,
       yearlyPreTax,
@@ -613,7 +622,12 @@ function Home() {
                 ["Rental agent fee (7%)", `-${fmt(r.monthlyRentalAgentFee)}`],
                 ...(r.isApartment
                   ? [["Strata fees", `-${fmt(r.monthlyStrata)}`] as [string, string]]
-                  : [["House insurance", `-${fmt(r.monthlyInsurance)}`] as [string, string]]),
+                  : [
+                      ["House insurance", `-${fmt(r.monthlyInsurance)}`] as [string, string],
+                      ...(r.monthlyLandTax > 0
+                        ? [["Land tax (NSW)", `-${fmt(r.monthlyLandTax)}`] as [string, string]]
+                        : []),
+                    ]),
                 ["Council + Water", `-${fmt(MONTHLY_COUNCIL_WATER)}`],
                 ["Rent spend", `-${fmt(r.monthlyRentSpend)}`],
                 ["Net (pre-tax) /mo", signedFmt(r.monthlyNet), true],

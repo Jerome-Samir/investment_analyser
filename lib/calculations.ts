@@ -41,6 +41,16 @@ export function calcLMI(price: number, depositPct: number): number {
   return loan * 0.035;
 }
 
+// NSW Land Tax (2024-25 rates) — applies to land value, not property price
+export function calcLandTaxNSW(landValue: number): number {
+  const generalThreshold = 1_075_000;
+  const premiumThreshold = 6_571_000;
+  if (landValue <= generalThreshold) return 0;
+  if (landValue <= premiumThreshold)
+    return 100 + (landValue - generalThreshold) * 0.016;
+  return 87_936 + (landValue - premiumThreshold) * 0.02;
+}
+
 // NSW government fees
 export const MORTGAGE_REGISTRATION_FEE = 187.2;
 export const TRANSFER_FEE = 165.4;
@@ -60,7 +70,8 @@ export function computeBreakeven(
   depositPct: number,
   capitaliseLMI: boolean,
   yearlyStrata: number,
-  isApartment: boolean
+  isApartment: boolean,
+  yearlyLandTax: number = 0
 ): number | null {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
@@ -77,6 +88,7 @@ export function computeBreakeven(
     yearlyInsurance -
     yearlyCouncilWater -
     yearlyStrata -
+    yearlyLandTax -
     yearlyRent -
     yearlyInterest;
 
@@ -86,6 +98,7 @@ export function computeBreakeven(
     yearlyInsurance -
     yearlyCouncilWater -
     yearlyStrata -
+    yearlyLandTax -
     yearlyInterest;
   const deductibleLoss = Math.max(0, -propertyNet);
 
@@ -164,6 +177,7 @@ export function compute10YearProjection(
   totalUpfront: number,
   appreciationRate: number,
   rentalGrowthRate: number,
+  yearlyLandTax: number = 0,
 ): YearlyCashFlow[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
@@ -201,6 +215,7 @@ export function compute10YearProjection(
       yearlyInsurance +
       yearlyCouncilWater +
       yearlyStrata +
+      yearlyLandTax +
       yearlyRent;
 
     const propertyNet =
@@ -209,6 +224,7 @@ export function compute10YearProjection(
       yearlyInsurance -
       yearlyCouncilWater -
       yearlyStrata -
+      yearlyLandTax -
       yearlyInterest;
     const deductibleLoss = Math.max(0, -propertyNet);
     const taxSaving =
@@ -260,6 +276,7 @@ export function computeRateStressTest(
   capitaliseLMI: boolean,
   yearlyStrata: number,
   isApartment: boolean,
+  yearlyLandTax: number = 0,
 ): RateStressPoint[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
@@ -279,6 +296,7 @@ export function computeRateStressTest(
       yearlyInsurance -
       yearlyCouncilWater -
       yearlyStrata -
+      yearlyLandTax -
       yearlyRent -
       yearlyInterest;
 
@@ -288,6 +306,7 @@ export function computeRateStressTest(
       yearlyInsurance -
       yearlyCouncilWater -
       yearlyStrata -
+      yearlyLandTax -
       yearlyInterest;
     const deductibleLoss = Math.max(0, -propertyNet);
     const taxSaving =
@@ -295,7 +314,7 @@ export function computeRateStressTest(
       calcTaxWithMedicare(income - deductibleLoss);
     const yearlyAfterTax = yearlyPreTax + taxSaving;
 
-    const noi = yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance - yearlyCouncilWater - yearlyStrata;
+    const noi = yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance - yearlyCouncilWater - yearlyStrata - yearlyLandTax;
     const dscr = yearlyInterest > 0 ? noi / yearlyInterest : 999;
 
     results.push({
@@ -318,13 +337,14 @@ export function computeBreakevenVsRate(
   capitaliseLMI: boolean,
   yearlyStrata: number,
   isApartment: boolean,
+  yearlyLandTax: number = 0,
 ): { rate: number; breakeven: number }[] {
   const results: { rate: number; breakeven: number }[] = [];
   for (let r = 200; r <= 1000; r += 25) {
     const rateDecimal = r / 100;
     const be = computeBreakeven(
       price, weeklyRental, weeklyRent, income, rateDecimal,
-      depositPct, capitaliseLMI, yearlyStrata, isApartment,
+      depositPct, capitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
     );
     if (be !== null) {
       results.push({ rate: rateDecimal, breakeven: Math.round(be * 100) / 100 });
@@ -345,6 +365,7 @@ export function computeCoCVsDeposit(
   isApartment: boolean,
   stampDuty: number,
   includeBuyerAgent: boolean,
+  yearlyLandTax: number = 0,
 ): { deposit: number; coc: number; upfront: number }[] {
   const results: { deposit: number; coc: number; upfront: number }[] = [];
   for (let dp = 5; dp <= 30; dp++) {
@@ -359,11 +380,11 @@ export function computeCoCVsDeposit(
     const yearlyRent = weeklyRent * 52;
     const yearlyPreTax =
       yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
-      yearlyCouncilWater - yearlyStrata - yearlyRent - yearlyInterest;
+      yearlyCouncilWater - yearlyStrata - yearlyLandTax - yearlyRent - yearlyInterest;
 
     const propertyNet =
       yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
-      yearlyCouncilWater - yearlyStrata - yearlyInterest;
+      yearlyCouncilWater - yearlyStrata - yearlyLandTax - yearlyInterest;
     const deductibleLoss = Math.max(0, -propertyNet);
     const taxSaving = calcTaxWithMedicare(income) - calcTaxWithMedicare(income - deductibleLoss);
     const yearlyAfterTax = yearlyPreTax + taxSaving;
