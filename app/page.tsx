@@ -22,14 +22,19 @@ import {
 import {
   calcLMI,
   calcStampDutyNSW,
+  calcStampDutyNSW_FHBAS,
   calcLandTaxNSW,
   calcTaxWithMedicare,
+  calcMonthlyPI,
+  computeAmortisationSchedule,
   marginalRate,
   computeBreakeven,
   compute10YearProjection,
   computeRateStressTest,
   computeBreakevenVsRate,
   computeCoCVsDeposit,
+  computePPORRateStress,
+  computePPORDepositSensitivity,
   fmt,
   signedFmt,
   pctFmt,
@@ -166,6 +171,8 @@ function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appreciationRate, setAppreciationRate] = useState(4);
   const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
+  const [mode, setMode] = useState<"Investment" | "PPOR">("Investment");
+  const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -411,6 +418,98 @@ function Home() {
       stampDuty, includeBuyerAgent, yearlyLandTax,
     );
 
+    // ─── PPOR Mode Calculations ───
+    const ppor = (() => {
+      const stampDutyPPOR = isFirstHomeBuyer
+        ? calcStampDutyNSW_FHBAS(price)
+        : calcStampDutyNSW(price);
+      const lmiPPOR = calcLMI(price, depositPct);
+      const effectiveCapPPOR = depositPct < 20 ? capitaliseLMI : false;
+      const loanPPOR = price * (1 - depositPct / 100) + (effectiveCapPPOR ? lmiPPOR : 0);
+      const monthlyPI = calcMonthlyPI(loanPPOR, rate);
+      const depositAmount = (price * depositPct) / 100;
+      const lmiUpfrontPPOR = effectiveCapPPOR ? 0 : lmiPPOR;
+      const totalUpfrontPPOR =
+        depositAmount + stampDutyPPOR + lmiUpfrontPPOR +
+        MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE + LEGAL_FEES;
+
+      const isApt = propertyType === "Apartment";
+      const yearlyStrataPPOR = isApt ? quarterlyStrata * 4 : 0;
+      const monthlyStrataPPOR = yearlyStrataPPOR / 12;
+      const yearlyInsurancePPOR = isApt ? 0 : price > 0 ? 2_000 : 0;
+      const monthlyInsurancePPOR = yearlyInsurancePPOR / 12;
+      const monthlyRunningCosts =
+        monthlyPI + MONTHLY_COUNCIL_WATER + monthlyStrataPPOR + monthlyInsurancePPOR;
+
+      const amortisation = computeAmortisationSchedule(loanPPOR, rate);
+      const totalInterest30yr = amortisation.reduce((sum, y) => sum + y.interestPaid, 0);
+
+      const yearlyRunning =
+        MONTHLY_COUNCIL_WATER * 12 + yearlyStrataPPOR + yearlyInsurancePPOR;
+      const totalCostOfOwnership =
+        totalUpfrontPPOR + totalInterest30yr + yearlyRunning * 30;
+
+      const balanceYear10 = amortisation[9]?.remainingBalance ?? loanPPOR;
+      const propertyValueYear10 = price * Math.pow(1 + appreciationRate / 100, 10);
+      const equityYear10 = propertyValueYear10 - balanceYear10;
+
+      const currentYear = new Date().getFullYear();
+      const payoffYear = currentYear + 30;
+
+      const lvrPPOR = 100 - depositPct;
+
+      const equityData = Array.from({ length: 10 }, (_, i) => {
+        const y = i + 1;
+        const propVal = price * Math.pow(1 + appreciationRate / 100, y);
+        const bal = amortisation[y - 1]?.remainingBalance ?? loanPPOR;
+        return {
+          year: y,
+          propertyValue: Math.round(propVal),
+          loanBalance: bal,
+          equity: Math.round(propVal - bal),
+        };
+      });
+
+      const amortisationData = amortisation.slice(0, 10);
+      const rateStress = computePPORRateStress(loanPPOR);
+      const depositSensitivity = computePPORDepositSensitivity(
+        price, rate, isFirstHomeBuyer, capitaliseLMI,
+      );
+
+      // Affordability
+      const yearlyHousingCost = monthlyRunningCosts * 12;
+      const affordabilityRatio = income > 0 ? (yearlyHousingCost / income) * 100 : 0;
+      const yearlyTax = calcTaxWithMedicare(income);
+      const monthlyTakeHome = (income - yearlyTax) / 12;
+      const monthlyAfterHousing = monthlyTakeHome - monthlyRunningCosts;
+
+      return {
+        stampDuty: stampDutyPPOR,
+        lmi: lmiPPOR,
+        effectiveCapitalise: effectiveCapPPOR,
+        loan: loanPPOR,
+        monthlyPI,
+        deposit: depositAmount,
+        lmiUpfront: lmiUpfrontPPOR,
+        totalUpfront: totalUpfrontPPOR,
+        monthlyStrata: monthlyStrataPPOR,
+        monthlyInsurance: monthlyInsurancePPOR,
+        monthlyRunningCosts,
+        totalInterest30yr,
+        totalCostOfOwnership,
+        equityYear10,
+        payoffYear,
+        lvr: lvrPPOR,
+        equityData,
+        amortisationData,
+        rateStress,
+        depositSensitivity,
+        affordabilityRatio,
+        monthlyTakeHome,
+        monthlyAfterHousing,
+      };
+    })();
+
     return {
       lmi,
       effectiveCapitaliseLMI,
@@ -453,8 +552,9 @@ function Home() {
       rateStressData,
       beVsRateData,
       cocVsDepositData,
+      ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer]);
 
   const r = results;
 
@@ -472,6 +572,22 @@ function Home() {
       {/* Sidebar */}
       <aside className={`${sidebarOpen ? "block" : "hidden"} md:block w-full md:w-72 shrink-0 border-b md:border-b-0 md:border-r border-[var(--border)] p-5 overflow-y-auto bg-[var(--card)]`}>
         <h2 className="text-lg font-semibold mb-4">Inputs</h2>
+
+        <div className="flex mb-4 rounded-md overflow-hidden border border-[var(--border)]">
+          {(["Investment", "PPOR"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`flex-1 py-1.5 text-sm font-medium transition-colors ${
+                mode === m
+                  ? "bg-blue-500 text-white"
+                  : "bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--card)]"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
 
         <NumberInput label="Property Price" value={price} onChange={setPrice} step={10_000} prefix="$" />
 
@@ -498,10 +614,25 @@ function Home() {
           </label>
         )}
 
-        <NumberInput label="Rental Income (weekly)" value={weeklyRental} onChange={setWeeklyRental} step={10} prefix="$" />
-        <NumberInput label="Your Rent Spend (weekly)" value={weeklyRent} onChange={setWeeklyRent} step={10} prefix="$" />
         <NumberInput label="Gross Income (annual, pre-tax)" value={income} onChange={setIncome} step={1_000} prefix="$" />
+        {mode === "Investment" && (
+          <>
+            <NumberInput label="Rental Income (weekly)" value={weeklyRental} onChange={setWeeklyRental} step={10} prefix="$" />
+            <NumberInput label="Your Rent Spend (weekly)" value={weeklyRent} onChange={setWeeklyRent} step={10} prefix="$" />
+          </>
+        )}
         <NumberInput label="Bank Interest Rate (annual)" value={rate} onChange={setRate} step={0.01} min={0} suffix="%" />
+
+        {mode === "PPOR" && (
+          <label className="flex items-center gap-2 mb-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isFirstHomeBuyer}
+              onChange={(e) => setIsFirstHomeBuyer(e.target.checked)}
+            />
+            First Home Buyer (FHBAS)
+          </label>
+        )}
 
         <label className="block mb-3">
           <span className="text-sm font-medium">Property Type</span>
@@ -532,14 +663,16 @@ function Home() {
           />
         )}
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={includeBuyerAgent}
-            onChange={(e) => setIncludeBuyerAgent(e.target.checked)}
-          />
-          Include Buyer&apos;s Agent Fee (2%)
-        </label>
+        {mode === "Investment" && (
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeBuyerAgent}
+              onChange={(e) => setIncludeBuyerAgent(e.target.checked)}
+            />
+            Include Buyer&apos;s Agent Fee (2%)
+          </label>
+        )}
 
         <hr className="my-4 border-[var(--border)]" />
         <h2 className="text-lg font-semibold mb-4">Projection Assumptions</h2>
@@ -557,25 +690,30 @@ function Home() {
           />
         </label>
 
-        <label className="block mb-1">
-          <span className="text-sm font-medium">Rental Growth: {rentalGrowthRate}% p.a.</span>
-          <input
-            type="range"
-            min={0}
-            max={8}
-            step={0.5}
-            value={rentalGrowthRate}
-            onChange={(e) => setRentalGrowthRate(Number(e.target.value))}
-            className="mt-1"
-          />
-        </label>
+        {mode === "Investment" && (
+          <label className="block mb-1">
+            <span className="text-sm font-medium">Rental Growth: {rentalGrowthRate}% p.a.</span>
+            <input
+              type="range"
+              min={0}
+              max={8}
+              step={0.5}
+              value={rentalGrowthRate}
+              onChange={(e) => setRentalGrowthRate(Number(e.target.value))}
+              className="mt-1"
+            />
+          </label>
+        )}
       </aside>
 
       {/* Main content */}
       <main className="flex-1 p-4 md:p-6 overflow-y-auto">
-        <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">Investment Property Calculator</h1>
+        <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">
+          {mode === "PPOR" ? "Primary Residence Calculator" : "Investment Property Calculator"}
+        </h1>
 
         {/* Dashboard cards */}
+        {mode === "Investment" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
           {/* Upfront Costs */}
           <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
@@ -662,8 +800,104 @@ function Home() {
             />
           </div>
         </div>
+        )}
+
+        {mode === "PPOR" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+            {/* Upfront Costs */}
+            <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
+              <h3 className="text-base font-semibold mb-3">Upfront Costs</h3>
+              <Metric label="Total Upfront" value={fmt(r.ppor.totalUpfront)} />
+              <Table
+                rows={[
+                  [`Deposit (${depositPct}%)`, fmt(r.ppor.deposit)],
+                  [
+                    isFirstHomeBuyer && price <= 800_000
+                      ? "Stamp Duty (FHBAS exempt)"
+                      : isFirstHomeBuyer && price <= 1_000_000
+                        ? "Stamp Duty (FHBAS concessional)"
+                        : "Stamp Duty (NSW)",
+                    fmt(r.ppor.stampDuty),
+                  ],
+                  ...(r.ppor.lmi > 0
+                    ? [
+                        [
+                          r.ppor.effectiveCapitalise ? "LMI (capitalised)" : "LMI",
+                          fmt(r.ppor.lmi),
+                        ] as [string, string],
+                      ]
+                    : []),
+                  ["Legal Fees", fmt(LEGAL_FEES)],
+                  ["Govt. Fees*", fmt(MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE)],
+                  ["Total", fmt(r.ppor.totalUpfront), true],
+                ]}
+              />
+              <p className="text-xs text-[var(--muted)] mt-2">
+                *Govt. Fees = Mortgage Registration + Transfer Fee
+              </p>
+            </div>
+
+            {/* Monthly Costs */}
+            <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
+              <h3 className="text-base font-semibold mb-3">Monthly Housing Costs</h3>
+              <Metric
+                label="Total Monthly"
+                value={`${fmt(r.ppor.monthlyRunningCosts)} / mo`}
+              />
+              <Table
+                rows={[
+                  ["P&I Repayment", fmt(r.ppor.monthlyPI)],
+                  ["Council + Water", fmt(MONTHLY_COUNCIL_WATER)],
+                  ...(r.ppor.monthlyStrata > 0
+                    ? [["Strata fees", fmt(r.ppor.monthlyStrata)] as [string, string]]
+                    : []),
+                  ...(r.ppor.monthlyInsurance > 0
+                    ? [["House insurance", fmt(r.ppor.monthlyInsurance)] as [string, string]]
+                    : []),
+                  ["Total monthly", fmt(r.ppor.monthlyRunningCosts), true],
+                ]}
+              />
+            </div>
+
+            {/* Affordability */}
+            <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
+              <h3 className="text-base font-semibold mb-3">Affordability</h3>
+              <Metric
+                label="Housing-to-Income Ratio"
+                value={pctFmt(r.ppor.affordabilityRatio, 1)}
+                positive={r.ppor.affordabilityRatio <= 30}
+              />
+              <Table
+                rows={[
+                  ["Monthly take-home", fmt(r.ppor.monthlyTakeHome)],
+                  ["Monthly housing cost", `-${fmt(r.ppor.monthlyRunningCosts)}`],
+                  ["Remaining after housing", signedFmt(r.ppor.monthlyAfterHousing), true],
+                ]}
+              />
+              <p className="text-xs text-[var(--muted)] mt-2">
+                Banks typically lend up to 30-35% of gross income
+              </p>
+            </div>
+
+            {/* Loan Summary */}
+            <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
+              <h3 className="text-base font-semibold mb-3">Loan Summary</h3>
+              <Metric label="Loan Amount" value={fmt(r.ppor.loan)} />
+              <Table
+                rows={[
+                  ["Loan term", "30 years"],
+                  ["Monthly P&I", fmt(r.ppor.monthlyPI)],
+                  ["Total interest (30yr)", fmt(r.ppor.totalInterest30yr)],
+                  ["Total repaid", fmt(r.ppor.monthlyPI * 360)],
+                  ["Payoff year", String(r.ppor.payoffYear)],
+                ]}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Investment Metrics */}
+        {mode === "Investment" && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8">
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
             <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -707,8 +941,60 @@ function Home() {
             </div>
           </div>
         </div>
+        )}
+
+        {mode === "PPOR" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Monthly P&I
+                <InfoTip text="Your monthly principal and interest repayment on a 30-year loan. This is the fixed amount you pay each month to your lender." />
+              </div>
+              <div className="text-xl font-bold tabular-nums">{fmt(r.ppor.monthlyPI)}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Total Interest (30yr)
+                <InfoTip text="Total interest paid over the full 30-year loan term. This is the cost of borrowing — the difference between what you repay and what you borrowed." />
+              </div>
+              <div className="text-xl font-bold tabular-nums">{fmt(r.ppor.totalInterest30yr)}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Total Cost of Ownership
+                <InfoTip text="Everything you'll spend over 30 years: upfront costs + total interest + running expenses (council, water, strata, insurance). The true cost of owning this property." />
+              </div>
+              <div className="text-xl font-bold tabular-nums">{fmt(r.ppor.totalCostOfOwnership)}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                LVR
+                <InfoTip text="Loan-to-Value Ratio. The percentage of the property value that is financed by the loan. Above 80% typically requires Lenders Mortgage Insurance (LMI)." />
+              </div>
+              <div className={`text-xl font-bold tabular-nums ${r.ppor.lvr > 80 ? "text-[var(--negative)]" : "text-[var(--fg)]"}`}>
+                {pctFmt(r.ppor.lvr, 0)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Equity at Year 10
+                <InfoTip text="Your estimated equity after 10 years: property value (with appreciation) minus remaining loan balance. Combines both capital growth and principal repayments." />
+              </div>
+              <div className="text-xl font-bold tabular-nums text-[var(--positive)]">{fmt(r.ppor.equityYear10)}</div>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+              <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                Loan Payoff
+                <InfoTip text="The year your 30-year mortgage will be fully paid off, assuming you make all scheduled P&I repayments." />
+              </div>
+              <div className="text-xl font-bold tabular-nums">{r.ppor.payoffYear}</div>
+            </div>
+          </div>
+        )}
 
         {/* Charts Row 1 */}
+        {mode === "Investment" && (
+        <>
         <hr className="mb-4 md:mb-6 border-[var(--border)]" />
         <h2 className="text-lg font-semibold mb-4">Break-Even Sensitivity Analysis</h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -1196,6 +1482,166 @@ function Home() {
             </tbody>
           </table>
         </div>
+        </>
+        )}
+
+        {mode === "PPOR" && (
+          <>
+            {/* Equity Build-Up */}
+            <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+            <h2 className="text-lg font-semibold mb-4">Equity Build-Up ({appreciationRate}% growth p.a.)</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
+              <div>
+                <h4 className="text-sm font-semibold text-center mb-2">
+                  Property Value vs Loan Balance
+                </h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={r.ppor.equityData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Value ($)", angle: -90, position: "center", dx: -30, fontSize: 12 }} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                            <div className="font-medium mb-1">Year {label}</div>
+                            {payload.map((p, i) => (
+                              <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                            ))}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend verticalAlign="top" height={36} />
+                    <Area type="monotone" dataKey="propertyValue" name="Property Value" stroke="#16a34a" fill="#16a34a" fillOpacity={0.15} strokeWidth={2} />
+                    <Area type="monotone" dataKey="loanBalance" name="Loan Balance" stroke="#dc2626" fill="#dc2626" fillOpacity={0.1} strokeWidth={2} />
+                    <Area type="monotone" dataKey="equity" name="Equity" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-[var(--muted)] text-center mt-1">
+                  Year 10 equity: {fmt(r.ppor.equityYear10)}
+                </p>
+              </div>
+
+              {/* Amortisation Breakdown */}
+              <div>
+                <h4 className="text-sm font-semibold text-center mb-2">
+                  Annual Repayment Breakdown (First 10 Years)
+                </h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={r.ppor.amortisationData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Amount ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                            <div className="font-medium mb-1">Year {label}</div>
+                            {payload.map((p, i) => (
+                              <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                            ))}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend verticalAlign="top" height={36} />
+                    <Bar dataKey="principalPaid" name="Principal" stackId="a" fill="#3b82f6" />
+                    <Bar dataKey="interestPaid" name="Interest" stackId="a" fill="#f59e0b" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-[var(--muted)] text-center mt-1">
+                  Principal portion grows each year as the loan balance decreases
+                </p>
+              </div>
+            </div>
+
+            {/* Rate Stress & Deposit Sensitivity */}
+            <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+            <h2 className="text-lg font-semibold mb-4">Sensitivity Analysis</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
+              {/* Rate Stress Test */}
+              <div>
+                <h4 className="text-sm font-semibold text-center mb-2">
+                  Monthly Repayment vs Interest Rate
+                </h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={r.ppor.rateStress}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="rate" tick={{ fontSize: 12 }} label={{ value: "Interest Rate (%)", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Monthly P&I ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                            <div className="font-medium mb-1">{label}% rate</div>
+                            <div>Monthly: {fmt(payload[0].value as number)}</div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Line type="monotone" dataKey="monthlyRepayment" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Monthly P&I" />
+                    <ReferenceDot
+                      x={rate}
+                      y={r.ppor.rateStress.find(d => d.rate === rate)?.monthlyRepayment ?? 0}
+                      r={5}
+                      fill="#333"
+                      stroke="none"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-[var(--muted)] text-center mt-1">
+                  Current rate: {rate}% | Monthly: {fmt(r.ppor.monthlyPI)}
+                </p>
+              </div>
+
+              {/* Deposit Sensitivity */}
+              <div>
+                <h4 className="text-sm font-semibold text-center mb-2">
+                  Upfront Cost & Repayment vs Deposit %
+                </h4>
+                <ResponsiveContainer width="100%" height={280}>
+                  <ComposedChart data={r.ppor.depositSensitivity}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="deposit" tick={{ fontSize: 12 }} domain={[5, 30]} ticks={[6,8,10,12,14,16,18,20,22,24,26,28,30]} label={{ value: "Deposit %", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Upfront ($)", angle: -90, position: "center", dx: -25, fontSize: 12 }} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} label={{ value: "Monthly P&I ($)", angle: 90, position: "center", dx: 20, fontSize: 12 }} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                            <div className="font-medium mb-1">{label}% deposit</div>
+                            {payload.map((p, i) => (
+                              <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                            ))}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend verticalAlign="top" height={36} />
+                    <Bar yAxisId="left" dataKey="totalUpfront" name="Total Upfront" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="monthlyRepayment" name="Monthly P&I" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                    <ReferenceDot
+                      yAxisId="left"
+                      x={depositPct}
+                      y={r.ppor.depositSensitivity.find(d => d.deposit === depositPct)?.totalUpfront ?? 0}
+                      r={5}
+                      fill="#333"
+                      stroke="none"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <p className="text-xs text-[var(--muted)] text-center mt-1">
+                  LMI applies below 20% deposit — note the cost jump
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

@@ -41,6 +41,126 @@ export function calcLMI(price: number, depositPct: number): number {
   return loan * 0.035;
 }
 
+// P&I monthly repayment (standard amortisation over termYears)
+export function calcMonthlyPI(
+  loanAmount: number,
+  annualRate: number,
+  termYears: number = 30,
+): number {
+  if (loanAmount <= 0) return 0;
+  if (annualRate <= 0) return loanAmount / (termYears * 12);
+  const r = annualRate / 100 / 12;
+  const n = termYears * 12;
+  return loanAmount * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+}
+
+// NSW First Home Buyer Assistance Scheme stamp duty
+export function calcStampDutyNSW_FHBAS(price: number): number {
+  if (price <= 800_000) return 0;
+  if (price <= 1_000_000) {
+    const normalDuty = calcStampDutyNSW(price);
+    const discountFactor = (1_000_000 - price) / 200_000;
+    return normalDuty * (1 - discountFactor);
+  }
+  return calcStampDutyNSW(price);
+}
+
+export interface AmortisationYear {
+  year: number;
+  principalPaid: number;
+  interestPaid: number;
+  remainingBalance: number;
+}
+
+export function computeAmortisationSchedule(
+  loanAmount: number,
+  annualRate: number,
+  termYears: number = 30,
+): AmortisationYear[] {
+  const monthlyPayment = calcMonthlyPI(loanAmount, annualRate, termYears);
+  const results: AmortisationYear[] = [];
+  let balance = loanAmount;
+
+  for (let y = 1; y <= termYears; y++) {
+    let yearlyPrincipal = 0;
+    let yearlyInterest = 0;
+    for (let m = 0; m < 12; m++) {
+      const monthInterest = balance * (annualRate / 100 / 12);
+      const monthPrincipal = monthlyPayment - monthInterest;
+      yearlyPrincipal += monthPrincipal;
+      yearlyInterest += monthInterest;
+      balance -= monthPrincipal;
+    }
+    results.push({
+      year: y,
+      principalPaid: Math.round(yearlyPrincipal),
+      interestPaid: Math.round(yearlyInterest),
+      remainingBalance: Math.max(0, Math.round(balance)),
+    });
+  }
+  return results;
+}
+
+export interface PPORRateStressPoint {
+  rate: number;
+  monthlyRepayment: number;
+  yearlyRepayment: number;
+}
+
+export function computePPORRateStress(
+  loanAmount: number,
+): PPORRateStressPoint[] {
+  const results: PPORRateStressPoint[] = [];
+  for (let r = 200; r <= 1000; r += 25) {
+    const rateDecimal = r / 100;
+    const monthly = calcMonthlyPI(loanAmount, rateDecimal);
+    results.push({
+      rate: rateDecimal,
+      monthlyRepayment: Math.round(monthly),
+      yearlyRepayment: Math.round(monthly * 12),
+    });
+  }
+  return results;
+}
+
+export interface PPORDepositPoint {
+  deposit: number;
+  totalUpfront: number;
+  monthlyRepayment: number;
+  lmi: number;
+}
+
+export function computePPORDepositSensitivity(
+  price: number,
+  rate: number,
+  isFirstHomeBuyer: boolean,
+  capitaliseLMI: boolean,
+): PPORDepositPoint[] {
+  const results: PPORDepositPoint[] = [];
+  for (let dp = 5; dp <= 30; dp++) {
+    const dpLmi = calcLMI(price, dp);
+    const effectiveCap = dp < 20 ? capitaliseLMI : false;
+    const loan = price * (1 - dp / 100) + (effectiveCap ? dpLmi : 0);
+    const monthly = calcMonthlyPI(loan, rate);
+    const dpDeposit = (price * dp) / 100;
+    const stampDuty = isFirstHomeBuyer
+      ? calcStampDutyNSW_FHBAS(price)
+      : calcStampDutyNSW(price);
+    const lmiUpfront = effectiveCap ? 0 : dpLmi;
+    const totalUpfront =
+      dpDeposit + stampDuty + lmiUpfront +
+      MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE + LEGAL_FEES;
+
+    results.push({
+      deposit: dp,
+      totalUpfront: Math.round(totalUpfront),
+      monthlyRepayment: Math.round(monthly),
+      lmi: Math.round(dpLmi),
+    });
+  }
+  return results;
+}
+
 // NSW Land Tax (2024-25 rates) — applies to land value, not property price
 export function calcLandTaxNSW(landValue: number): number {
   const generalThreshold = 1_075_000;
