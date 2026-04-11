@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -30,6 +30,7 @@ import {
   marginalRate,
   computeBreakeven,
   compute10YearProjection,
+  computeETFComparison,
   computeRateStressTest,
   computeBreakevenVsRate,
   computeCoCVsDeposit,
@@ -173,6 +174,29 @@ function Home() {
   const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
   const [mode, setMode] = useState<"Investment" | "PPOR">("Investment");
   const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
+  const [etfReturnRate, setEtfReturnRate] = useState(8);
+  const [rbaDate, setRbaDate] = useState<string | null>(null);
+  const [rbaRates, setRbaRates] = useState<{ ownerOccupier: number; investor: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/rates")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data && !data.error) {
+          setRbaRates({ ownerOccupier: data.ownerOccupier, investor: data.investor });
+          setRate(mode === "PPOR" ? data.ownerOccupier : data.investor);
+          setRbaDate(data.asOf);
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update rate when switching modes if RBA rates are loaded
+  useEffect(() => {
+    if (rbaRates) {
+      setRate(mode === "PPOR" ? rbaRates.ownerOccupier : rbaRates.investor);
+    }
+  }, [mode, rbaRates]);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -399,6 +423,9 @@ function Home() {
       appreciationRate, rentalGrowthRate, yearlyLandTax,
     );
 
+    // ETF vs Property comparison
+    const etfComparison = computeETFComparison(tenYearData, totalUpfront, etfReturnRate);
+
     // Interest rate stress test
     const rateStressData = computeRateStressTest(
       price, weeklyRental, weeklyRent, income, depositPct,
@@ -549,12 +576,13 @@ function Home() {
       lvr,
       noi,
       tenYearData,
+      etfComparison,
       rateStressData,
       beVsRateData,
       cocVsDepositData,
       ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate]);
 
   const r = results;
 
@@ -622,6 +650,11 @@ function Home() {
           </>
         )}
         <NumberInput label="Bank Interest Rate (annual)" value={rate} onChange={setRate} step={0.01} min={0} suffix="%" />
+        {rbaDate && (
+          <p className="text-[10px] text-[var(--muted)] -mt-2 mb-3">
+            RBA avg. discounted variable rate as of {rbaDate}
+          </p>
+        )}
 
         {mode === "PPOR" && (
           <label className="flex items-center gap-2 mb-3 text-sm cursor-pointer">
@@ -689,6 +722,21 @@ function Home() {
             className="mt-1"
           />
         </label>
+
+        {mode === "Investment" && (
+          <label className="block mb-1">
+            <span className="text-sm font-medium">ETF Return: {etfReturnRate}% p.a.</span>
+            <input
+              type="range"
+              min={0}
+              max={15}
+              step={0.5}
+              value={etfReturnRate}
+              onChange={(e) => setEtfReturnRate(Number(e.target.value))}
+              className="mt-1"
+            />
+          </label>
+        )}
 
         {mode === "Investment" && (
           <label className="block mb-1">
@@ -1314,6 +1362,111 @@ function Home() {
           </div>
         </div>
 
+        {/* Property vs ETF Comparison */}
+        <hr className="my-4 md:my-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">
+          Property vs ETF Comparison ({etfReturnRate}% ETF return)
+          <InfoTip text="Compares deploying the same capital (upfront costs + ongoing out-of-pocket expenses) into an index fund instead of property. The ETF grows at the configured return rate, compounding annually." />
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
+          {/* Net Wealth Comparison */}
+          <div>
+            <h4 className="text-sm font-semibold text-center mb-2">
+              Net Wealth: Property vs ETF
+            </h4>
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={r.etfComparison.filter(d => d.year > 0)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} label={{ value: "Year", position: "insideBottom", offset: -2, fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} label={{ value: "Net Wealth ($)", angle: -90, position: "center", dx: -30, fontSize: 12 }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="rounded border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow">
+                        <div className="font-medium mb-1">Year {label}</div>
+                        {payload.map((p, i) => (
+                          <div key={i} style={{ color: p.color }}>{p.name}: {fmt(p.value as number)}</div>
+                        ))}
+                        {payload.length >= 2 && (
+                          <div className="mt-1 pt-1 border-t border-[var(--border)] font-medium">
+                            Difference: {fmt((payload[0].value as number) - (payload[1].value as number))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} />
+                <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
+                <Area type="monotone" dataKey="propertyWealth" name="Property" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} strokeWidth={2.5} />
+                <Area type="monotone" dataKey="etfWealth" name="ETF / Index Fund" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} strokeWidth={2.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-[var(--muted)] text-center mt-1">
+              {(() => {
+                const yr10 = r.etfComparison[10];
+                if (!yr10) return "";
+                const diff = yr10.propertyWealth - yr10.etfWealth;
+                return diff >= 0
+                  ? `Property ahead by ${fmt(diff)} at Year 10`
+                  : `ETF ahead by ${fmt(-diff)} at Year 10`;
+              })()}
+            </p>
+          </div>
+
+          {/* Year 10 Summary Card */}
+          <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)] flex flex-col justify-center">
+            <h4 className="text-sm font-semibold mb-4">10-Year Comparison Summary</h4>
+            {(() => {
+              const yr10 = r.etfComparison[10];
+              const propData = r.tenYearData[10];
+              if (!yr10 || !propData) return <p className="text-sm text-[var(--muted)]">Insufficient data</p>;
+              const diff = yr10.propertyWealth - yr10.etfWealth;
+              const winner = diff >= 0 ? "Property" : "ETF";
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-[var(--muted)] mb-1">Property Net Wealth</div>
+                      <div className={`text-xl font-bold tabular-nums ${yr10.propertyWealth >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                        {signedFmt(yr10.propertyWealth)}
+                      </div>
+                      <div className="text-xs text-[var(--muted)] mt-1">
+                        Equity: {fmt(propData.equity)}
+                      </div>
+                      <div className="text-xs text-[var(--muted)]">
+                        Cash flow: {signedFmt(propData.cumulativeCashFlow)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-[var(--muted)] mb-1">ETF Portfolio Value</div>
+                      <div className="text-xl font-bold tabular-nums text-[var(--positive)]">
+                        {fmt(yr10.etfWealth)}
+                      </div>
+                      <div className="text-xs text-[var(--muted)] mt-1">
+                        Total contributed: {fmt(yr10.etfContrib)}
+                      </div>
+                      <div className="text-xs text-[var(--muted)]">
+                        Growth: {fmt(yr10.etfWealth - yr10.etfContrib)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-[var(--bg)] p-3 text-center">
+                    <div className="text-xs uppercase tracking-wide text-[var(--muted)] mb-1">Winner at Year 10</div>
+                    <div className={`text-lg font-bold ${diff >= 0 ? "text-blue-500" : "text-amber-500"}`}>
+                      {winner} by {fmt(Math.abs(diff))}
+                    </div>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] mt-3">
+                    Property wealth = equity + cumulative cash flow. ETF assumes {etfReturnRate}% annual return with the same capital deployed (upfront + yearly shortfalls).
+                  </p>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+
         {/* Charts Row 4 - Rate Sensitivity & Advanced */}
         <hr className="mb-4 md:mb-6 border-[var(--border)]" />
         <h2 className="text-lg font-semibold mb-4">Interest Rate & Return Analysis</h2>
@@ -1454,6 +1607,7 @@ function Home() {
                 <th className="py-2 px-3 text-right font-semibold">Net Cash Flow</th>
                 <th className="py-2 px-3 text-right font-semibold">Cumulative</th>
                 <th className="py-2 px-3 text-right font-semibold">Property Value</th>
+                <th className="py-2 px-3 text-right font-semibold">Loan Balance</th>
                 <th className="py-2 px-3 text-right font-semibold">Equity</th>
                 <th className="py-2 px-3 text-right font-semibold">Total Return</th>
               </tr>
@@ -1473,6 +1627,7 @@ function Home() {
                     {signedFmt(row.cumulativeCashFlow)}
                   </td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.propertyValue)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.loanBalance)}</td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.equity)}</td>
                   <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${row.totalReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
                     {signedFmt(row.totalReturn)}

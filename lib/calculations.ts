@@ -275,6 +275,7 @@ export interface YearlyCashFlow {
   rentalIncome: number;
   expenses: number;
   interest: number;
+  principal: number;
   taxBenefit: number;
   netCashFlow: number;
   cumulativeCashFlow: number;
@@ -298,11 +299,15 @@ export function compute10YearProjection(
   appreciationRate: number,
   rentalGrowthRate: number,
   yearlyLandTax: number = 0,
+  loanType: "IO" | "PI" = "IO",
 ): YearlyCashFlow[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
   const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+
+  // Compute amortisation schedule for P&I mode
+  const amortisation = loanType === "PI" ? computeAmortisationSchedule(mortgage, rate) : null;
 
   const results: YearlyCashFlow[] = [];
   let cumulativeCash = -totalUpfront;
@@ -313,6 +318,7 @@ export function compute10YearProjection(
     rentalIncome: 0,
     expenses: 0,
     interest: 0,
+    principal: 0,
     taxBenefit: 0,
     netCashFlow: -totalUpfront,
     cumulativeCashFlow: cumulativeCash,
@@ -327,8 +333,18 @@ export function compute10YearProjection(
     const currentRent = weeklyRent * Math.pow(1 + rentalGrowthRate / 100, y - 1);
     const yearlyRentalIncome = currentRental * 52;
     const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
-    const yearlyInterest = mortgage * (rate / 100);
     const yearlyRent = currentRent * 52;
+
+    // Interest and principal depend on loan type
+    const yearlyInterest = amortisation
+      ? amortisation[y - 1].interestPaid
+      : mortgage * (rate / 100);
+    const yearlyPrincipal = amortisation
+      ? amortisation[y - 1].principalPaid
+      : 0;
+    const loanBalance = amortisation
+      ? amortisation[y - 1].remainingBalance
+      : mortgage;
 
     const totalExpenses =
       yearlyRentalAgentFee +
@@ -351,28 +367,87 @@ export function compute10YearProjection(
       calcTaxWithMedicare(income) -
       calcTaxWithMedicare(income - deductibleLoss);
 
+    // Cash outflow includes principal repayments (not deductible but still cash out the door)
     const yearlyPreTax =
       yearlyRentalIncome -
       totalExpenses -
-      yearlyInterest;
+      yearlyInterest -
+      yearlyPrincipal;
     const netCashFlow = yearlyPreTax + taxSaving;
     cumulativeCash += netCashFlow;
 
     const propertyValue = price * Math.pow(1 + appreciationRate / 100, y);
-    const equity = propertyValue - mortgage;
+    const equity = propertyValue - loanBalance;
 
     results.push({
       year: y,
       rentalIncome: Math.round(yearlyRentalIncome),
       expenses: Math.round(totalExpenses),
       interest: Math.round(yearlyInterest),
+      principal: Math.round(yearlyPrincipal),
       taxBenefit: Math.round(taxSaving),
       netCashFlow: Math.round(netCashFlow),
       cumulativeCashFlow: Math.round(cumulativeCash),
       propertyValue: Math.round(propertyValue),
-      loanBalance: Math.round(mortgage),
+      loanBalance: Math.round(loanBalance),
       equity: Math.round(equity),
       totalReturn: Math.round(cumulativeCash + (propertyValue - price)),
+    });
+  }
+
+  return results;
+}
+
+// ETF vs Property comparison — models deploying the same capital into an index fund
+export interface ETFvsPropertyYear {
+  year: number;
+  propertyWealth: number;
+  etfWealth: number;
+  propertyContrib: number;
+  etfContrib: number;
+}
+
+export function computeETFComparison(
+  tenYearData: YearlyCashFlow[],
+  totalUpfront: number,
+  etfReturnRate: number,
+): ETFvsPropertyYear[] {
+  const results: ETFvsPropertyYear[] = [];
+  let etfBalance = totalUpfront;
+  let totalEtfContrib = totalUpfront;
+
+  // Year 0
+  const year0 = tenYearData[0];
+  results.push({
+    year: 0,
+    propertyWealth: 0,
+    etfWealth: Math.round(etfBalance),
+    propertyContrib: Math.round(totalUpfront),
+    etfContrib: Math.round(totalEtfContrib),
+  });
+
+  for (let y = 1; y <= 10; y++) {
+    const row = tenYearData[y];
+    if (!row) break;
+
+    // Property net wealth = equity + cumulative cash flow (includes year 0 outlay)
+    const propertyWealth = row.equity + row.cumulativeCashFlow;
+
+    // If property has a net cash outflow this year, the investor would have
+    // invested that same amount into the ETF instead. If net positive, we
+    // assume they withdraw (don't add to ETF).
+    const yearlyOutOfPocket = Math.max(0, -row.netCashFlow);
+
+    // Grow existing ETF balance, then add this year's contribution
+    etfBalance = etfBalance * (1 + etfReturnRate / 100) + yearlyOutOfPocket;
+    totalEtfContrib += yearlyOutOfPocket;
+
+    results.push({
+      year: y,
+      propertyWealth: Math.round(propertyWealth),
+      etfWealth: Math.round(etfBalance),
+      propertyContrib: Math.round(totalUpfront + row.cumulativeCashFlow + totalUpfront),
+      etfContrib: Math.round(totalEtfContrib),
     });
   }
 
