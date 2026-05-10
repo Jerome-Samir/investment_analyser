@@ -559,7 +559,7 @@ export function computeCoCVsDeposit(
   yearlyStrata: number,
   isApartment: boolean,
   stampDuty: number,
-  includeBuyerAgent: boolean,
+  buyerAgentFee: number,
   yearlyLandTax: number = 0,
 ): { deposit: number; coc: number; upfront: number }[] {
   const results: { deposit: number; coc: number; upfront: number }[] = [];
@@ -586,7 +586,6 @@ export function computeCoCVsDeposit(
 
     const dpDeposit = (price * dp) / 100;
     const dpLmiUpfront = effectiveCap ? 0 : dpLmi;
-    const buyerAgentFee = includeBuyerAgent ? price * 0.02 : 0;
     const totalUpfront = dpDeposit + stampDuty + dpLmiUpfront + buyerAgentFee +
       MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE + LEGAL_FEES;
 

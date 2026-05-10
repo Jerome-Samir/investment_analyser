@@ -93,7 +93,9 @@ function NumberInput({
 
 // ─── Table Component ───
 
-function Table({ rows }: { rows: [string, string, boolean?][] }) {
+type TableRow = [React.ReactNode, React.ReactNode, boolean?];
+
+function Table({ rows }: { rows: TableRow[] }) {
   return (
     <table className="w-full text-sm border-collapse">
       <tbody>
@@ -107,6 +109,44 @@ function Table({ rows }: { rows: [string, string, boolean?][] }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+// ─── Inline Editable Number ───
+
+function InlineNumber({
+  value,
+  onChange,
+  step = 1,
+  min = 0,
+  prefix,
+  suffix,
+  width = "w-16",
+  disabled = false,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  step?: number;
+  min?: number;
+  prefix?: string;
+  suffix?: string;
+  width?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-0.5 align-middle ${disabled ? "opacity-50" : ""}`}>
+      {prefix && <span className="text-[var(--muted)]">{prefix}</span>}
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        step={step}
+        min={min}
+        disabled={disabled}
+        className={`${width} px-1 py-0 text-right tabular-nums bg-[var(--bg)] border border-[var(--border)] rounded focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed`}
+      />
+      {suffix && <span className="text-[var(--muted)]">{suffix}</span>}
+    </span>
   );
 }
 
@@ -168,7 +208,9 @@ function Home() {
   const [rate, setRate] = useState(6.1);
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
+  const [buyerAgentFee, setBuyerAgentFee] = useState(14_000);
   const [includeBuyerAgent, setIncludeBuyerAgent] = useState(true);
+  const [stampDuty, setStampDuty] = useState(() => calcStampDutyNSW(700_000));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appreciationRate, setAppreciationRate] = useState(4);
   const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
@@ -197,6 +239,17 @@ function Home() {
       setRate(mode === "PPOR" ? rbaRates.ownerOccupier : rbaRates.investor);
     }
   }, [mode, rbaRates]);
+
+  // Recompute stamp duty default when price / FHB / mode changes (user can still override after)
+  useEffect(() => {
+    const useFHBAS = mode === "PPOR" && isFirstHomeBuyer;
+    setStampDuty(useFHBAS ? calcStampDutyNSW_FHBAS(price) : calcStampDutyNSW(price));
+  }, [price, mode, isFirstHomeBuyer]);
+
+  // Recompute buyer's agent fee default (2% of price) when price changes
+  useEffect(() => {
+    setBuyerAgentFee(Math.round(price * 0.02));
+  }, [price]);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -244,16 +297,15 @@ function Home() {
     const taxSaving = taxWithout - taxWith;
     const yearlyAfterTax = yearlyPreTax + taxSaving;
 
-    // Upfront costs
+    // Upfront costs (stampDuty and buyerAgentFee come from state — user-editable)
     const deposit = (price * depositPct) / 100;
-    const stampDuty = calcStampDutyNSW(price);
     const lmiUpfront = effectiveCapitaliseLMI ? 0 : lmi;
-    const buyerAgentFee = includeBuyerAgent ? price * 0.02 : 0;
+    const effectiveBuyerAgentFee = includeBuyerAgent ? buyerAgentFee : 0;
     const totalUpfront =
       deposit +
       stampDuty +
       lmiUpfront +
-      buyerAgentFee +
+      effectiveBuyerAgentFee +
       MORTGAGE_REGISTRATION_FEE +
       TRANSFER_FEE +
       LEGAL_FEES;
@@ -372,7 +424,7 @@ function Home() {
         dpDeposit +
         stampDuty +
         dpLmiUpfront +
-        buyerAgentFee +
+        effectiveBuyerAgentFee +
         MORTGAGE_REGISTRATION_FEE +
         TRANSFER_FEE +
         LEGAL_FEES;
@@ -442,14 +494,13 @@ function Home() {
     const cocVsDepositData = computeCoCVsDeposit(
       price, weeklyRental, weeklyRent, income, rate,
       effectiveCapitaliseLMI, yearlyStrata, isApartment,
-      stampDuty, includeBuyerAgent, yearlyLandTax,
+      stampDuty, effectiveBuyerAgentFee, yearlyLandTax,
     );
 
     // ─── PPOR Mode Calculations ───
     const ppor = (() => {
-      const stampDutyPPOR = isFirstHomeBuyer
-        ? calcStampDutyNSW_FHBAS(price)
-        : calcStampDutyNSW(price);
+      // Use user-editable stamp duty from state (already synced via useEffect)
+      const stampDutyPPOR = stampDuty;
       const lmiPPOR = calcLMI(price, depositPct);
       const effectiveCapPPOR = depositPct < 20 ? capitaliseLMI : false;
       const loanPPOR = price * (1 - depositPct / 100) + (effectiveCapPPOR ? lmiPPOR : 0);
@@ -556,7 +607,7 @@ function Home() {
       deposit,
       stampDuty,
       lmiUpfront: effectiveCapitaliseLMI ? 0 : lmi,
-      buyerAgentFee,
+      buyerAgentFee: effectiveBuyerAgentFee,
       totalUpfront,
       takeHomeYearly,
       taxWith,
@@ -582,7 +633,7 @@ function Home() {
       cocVsDepositData,
       ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, includeBuyerAgent, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate]);
 
   const r = results;
 
@@ -696,17 +747,6 @@ function Home() {
           />
         )}
 
-        {mode === "Investment" && (
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeBuyerAgent}
-              onChange={(e) => setIncludeBuyerAgent(e.target.checked)}
-            />
-            Include Buyer&apos;s Agent Fee (2%)
-          </label>
-        )}
-
         <hr className="my-4 border-[var(--border)]" />
         <h2 className="text-lg font-semibold mb-4">Projection Assumptions</h2>
 
@@ -770,7 +810,17 @@ function Home() {
             <Table
               rows={[
                 [`Deposit (${depositPct}%)`, fmt(r.deposit)],
-                ["Stamp (transfer) Duty (NSW)", fmt(r.stampDuty)],
+                [
+                  "Stamp (transfer) Duty (NSW)",
+                  <InlineNumber
+                    key="sd-inv"
+                    value={Math.round(stampDuty)}
+                    onChange={setStampDuty}
+                    step={100}
+                    prefix="$"
+                    width="w-24"
+                  />,
+                ],
                 ...(r.lmi > 0
                   ? [
                       [
@@ -779,9 +829,25 @@ function Home() {
                       ] as [string, string],
                     ]
                   : []),
-                ...(includeBuyerAgent
-                  ? [["Buyer's Agent Fee (2%)", fmt(r.buyerAgentFee)] as [string, string]]
-                  : []),
+                [
+                  <label key="ba-label" className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeBuyerAgent}
+                      onChange={(e) => setIncludeBuyerAgent(e.target.checked)}
+                    />
+                    Buyer&apos;s Agent Fee
+                  </label>,
+                  <InlineNumber
+                    key="ba-inv"
+                    value={Math.round(buyerAgentFee)}
+                    onChange={setBuyerAgentFee}
+                    step={100}
+                    prefix="$"
+                    width="w-24"
+                    disabled={!includeBuyerAgent}
+                  />,
+                ],
                 ["Legal Fees", fmt(LEGAL_FEES)],
                 ["Govt. Fees*", fmt(MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE)],
                 ["Total", fmt(r.totalUpfront), true],
@@ -865,7 +931,14 @@ function Home() {
                       : isFirstHomeBuyer && price <= 1_000_000
                         ? "Stamp Duty (FHBAS concessional)"
                         : "Stamp Duty (NSW)",
-                    fmt(r.ppor.stampDuty),
+                    <InlineNumber
+                      key="sd-ppor"
+                      value={Math.round(stampDuty)}
+                      onChange={setStampDuty}
+                      step={100}
+                      prefix="$"
+                      width="w-24"
+                    />,
                   ],
                   ...(r.ppor.lmi > 0
                     ? [
