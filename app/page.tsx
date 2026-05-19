@@ -217,6 +217,7 @@ function Home() {
   const [mode, setMode] = useState<"Investment" | "PPOR">("Investment");
   const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
   const [etfReturnRate, setEtfReturnRate] = useState(8);
+  const [taxBenefitsEnabled, setTaxBenefitsEnabled] = useState(true);
   const [rbaDate, setRbaDate] = useState<string | null>(null);
   const [rbaRates, setRbaRates] = useState<{ ownerOccupier: number; investor: number } | null>(null);
 
@@ -253,10 +254,13 @@ function Home() {
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
-    const yearlyStrata = isApartment ? quarterlyStrata * 4 : 0;
+    const hasProperty = price > 0;
+    const yearlyStrata = isApartment && hasProperty ? quarterlyStrata * 4 : 0;
     const monthlyStrata = yearlyStrata / 12;
     const yearlyLandTax = isApartment ? 0 : calcLandTaxNSW(price * 0.6);
     const monthlyLandTax = yearlyLandTax / 12;
+    const monthlyCouncilWater = hasProperty ? MONTHLY_COUNCIL_WATER : 0;
+    const yearlyCouncilWaterCost = monthlyCouncilWater * 12;
 
     const lmi = calcLMI(price, depositPct);
     const effectiveCapitaliseLMI = depositPct < 20 ? capitaliseLMI : false;
@@ -271,7 +275,7 @@ function Home() {
       monthlyRental -
       monthlyRentalAgentFee -
       monthlyInsurance -
-      MONTHLY_COUNCIL_WATER -
+      monthlyCouncilWater -
       monthlyStrata -
       monthlyLandTax -
       monthlyRentSpend -
@@ -281,7 +285,7 @@ function Home() {
     const yearlyRentalIncome = weeklyRental * 52;
     const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
     const yearlyInterest = monthlyInterest * 12;
-    const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+    const yearlyCouncilWater = yearlyCouncilWaterCost;
     const propertyNet =
       yearlyRentalIncome -
       yearlyRentalAgentFee -
@@ -290,7 +294,8 @@ function Home() {
       yearlyStrata -
       yearlyLandTax -
       yearlyInterest;
-    const deductibleLoss = Math.max(0, -propertyNet);
+    const effectiveTaxBenefits = mode === "Investment" ? taxBenefitsEnabled : true;
+    const deductibleLoss = effectiveTaxBenefits ? Math.max(0, -propertyNet) : 0;
 
     const taxWithout = calcTaxWithMedicare(income);
     const taxWith = calcTaxWithMedicare(income - deductibleLoss);
@@ -321,7 +326,7 @@ function Home() {
     for (let i = 0; i < steps; i++) {
       const appRate = (i / (steps - 1)) * 20;
       const yearlyApp = price * (appRate / 100);
-      const taxableCG = yearlyApp * 0.5;
+      const taxableCG = yearlyApp * (effectiveTaxBenefits ? 0.5 : 1.0);
       const taxWithCGT = calcTaxWithMedicare(baseTaxableIncome + taxableCG);
       const taxWithoutCGT = calcTaxWithMedicare(baseTaxableIncome);
       const cgtOwed = taxWithCGT - taxWithoutCGT;
@@ -370,7 +375,8 @@ function Home() {
       if (wr < 0) continue;
       const be = computeBreakeven(
         price, weeklyRental, wr, income, rate, depositPct,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+        effectiveTaxBenefits,
       );
       if (be !== null) rdData.push({ rentDiff: Math.round(rd), breakeven: Math.round(be * 100) / 100 });
     }
@@ -383,7 +389,8 @@ function Home() {
       const pp = pMin + ((pMax - pMin) * pi) / 80;
       const be = computeBreakeven(
         pp, weeklyRental, weeklyRent, income, rate, depositPct,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+        effectiveTaxBenefits,
       );
       if (be !== null) ppData.push({ price: Math.round(pp), breakeven: Math.round(be * 100) / 100 });
     }
@@ -412,7 +419,7 @@ function Home() {
         yearlyStrata -
         yearlyLandTax -
         dpYearlyInterest;
-      const dpDeductibleLoss = Math.max(0, -dpPropertyNet);
+      const dpDeductibleLoss = effectiveTaxBenefits ? Math.max(0, -dpPropertyNet) : 0;
       const dpTaxSaving =
         calcTaxWithMedicare(income) -
         calcTaxWithMedicare(income - dpDeductibleLoss);
@@ -431,7 +438,8 @@ function Home() {
 
       const be = computeBreakeven(
         price, weeklyRental, weeklyRent, income, rate, dp,
-        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax
+        effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+        effectiveTaxBenefits,
       );
 
       return {
@@ -467,12 +475,15 @@ function Home() {
     const cashOnCash = totalUpfront > 0 ? (yearlyAfterTax / totalUpfront) * 100 : 0;
     const dscr = yearlyInterest > 0 ? noi / yearlyInterest : 0;
     const lvr = 100 - depositPct;
+    const weeklyOutOfPocket = yearlyAfterTax / 52;
+    const unrecoverableUpfront = totalUpfront - deposit;
 
     // 10-year projection
     const tenYearData = compute10YearProjection(
       price, weeklyRental, weeklyRent, income, rate, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, totalUpfront,
-      appreciationRate, rentalGrowthRate, yearlyLandTax,
+      appreciationRate, rentalGrowthRate, yearlyLandTax, "IO",
+      effectiveTaxBenefits,
     );
 
     // ETF vs Property comparison
@@ -482,12 +493,14 @@ function Home() {
     const rateStressData = computeRateStressTest(
       price, weeklyRental, weeklyRent, income, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+      effectiveTaxBenefits,
     );
 
     // Break-even vs interest rate
     const beVsRateData = computeBreakevenVsRate(
       price, weeklyRental, weeklyRent, income, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+      effectiveTaxBenefits,
     );
 
     // Cash-on-cash return vs deposit
@@ -495,6 +508,7 @@ function Home() {
       price, weeklyRental, weeklyRent, income, rate,
       effectiveCapitaliseLMI, yearlyStrata, isApartment,
       stampDuty, effectiveBuyerAgentFee, yearlyLandTax,
+      effectiveTaxBenefits,
     );
 
     // ─── PPOR Mode Calculations ───
@@ -512,18 +526,19 @@ function Home() {
         MORTGAGE_REGISTRATION_FEE + TRANSFER_FEE + LEGAL_FEES;
 
       const isApt = propertyType === "Apartment";
-      const yearlyStrataPPOR = isApt ? quarterlyStrata * 4 : 0;
+      const yearlyStrataPPOR = isApt && hasProperty ? quarterlyStrata * 4 : 0;
       const monthlyStrataPPOR = yearlyStrataPPOR / 12;
       const yearlyInsurancePPOR = isApt ? 0 : price > 0 ? 2_000 : 0;
       const monthlyInsurancePPOR = yearlyInsurancePPOR / 12;
+      const monthlyCouncilWaterPPOR = hasProperty ? MONTHLY_COUNCIL_WATER : 0;
       const monthlyRunningCosts =
-        monthlyPI + MONTHLY_COUNCIL_WATER + monthlyStrataPPOR + monthlyInsurancePPOR;
+        monthlyPI + monthlyCouncilWaterPPOR + monthlyStrataPPOR + monthlyInsurancePPOR;
 
       const amortisation = computeAmortisationSchedule(loanPPOR, rate);
       const totalInterest30yr = amortisation.reduce((sum, y) => sum + y.interestPaid, 0);
 
       const yearlyRunning =
-        MONTHLY_COUNCIL_WATER * 12 + yearlyStrataPPOR + yearlyInsurancePPOR;
+        monthlyCouncilWaterPPOR * 12 + yearlyStrataPPOR + yearlyInsurancePPOR;
       const totalCostOfOwnership =
         totalUpfrontPPOR + totalInterest30yr + yearlyRunning * 30;
 
@@ -572,6 +587,7 @@ function Home() {
         totalUpfront: totalUpfrontPPOR,
         monthlyStrata: monthlyStrataPPOR,
         monthlyInsurance: monthlyInsurancePPOR,
+        monthlyCouncilWater: monthlyCouncilWaterPPOR,
         monthlyRunningCosts,
         totalInterest30yr,
         totalCostOfOwnership,
@@ -598,6 +614,7 @@ function Home() {
       monthlyInsurance,
       monthlyStrata,
       monthlyLandTax,
+      monthlyCouncilWater,
       monthlyRentSpend,
       monthlyNet,
       yearlyPreTax,
@@ -624,6 +641,8 @@ function Home() {
       netYield,
       cashOnCash,
       dscr,
+      weeklyOutOfPocket,
+      unrecoverableUpfront,
       lvr,
       noi,
       tenYearData,
@@ -633,7 +652,7 @@ function Home() {
       cocVsDepositData,
       ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate, taxBenefitsEnabled]);
 
   const r = results;
 
@@ -792,6 +811,21 @@ function Home() {
             />
           </label>
         )}
+
+        {mode === "Investment" && (
+          <div className="mt-4 mb-3">
+            <button
+              onClick={() => setTaxBenefitsEnabled(!taxBenefitsEnabled)}
+              className={`w-full py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                taxBenefitsEnabled
+                  ? "bg-blue-500 text-white border-blue-500"
+                  : "bg-[var(--bg)] text-[var(--fg)] border-[var(--border)]"
+              }`}
+            >
+              {taxBenefitsEnabled ? "Negative Gearing + CGT Discount: ON" : "Negative Gearing + CGT Discount: OFF"}
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main content */}
@@ -880,7 +914,7 @@ function Home() {
                         ? [["Land tax (NSW)", `-${fmt(r.monthlyLandTax)}`] as [string, string]]
                         : []),
                     ]),
-                ["Council + Water", `-${fmt(MONTHLY_COUNCIL_WATER)}`],
+                ["Council + Water", `-${fmt(r.monthlyCouncilWater)}`],
                 ["Rent spend", `-${fmt(r.monthlyRentSpend)}`],
                 ["Net (pre-tax) /mo", signedFmt(r.monthlyNet), true],
                 ["Yearly net (pre-tax)", signedFmt(r.yearlyPreTax), true],
@@ -892,7 +926,9 @@ function Home() {
           <div className="rounded-lg border border-[var(--border)] p-4 md:p-5 bg-[var(--card)]">
             <h3 className="text-base font-semibold mb-3">Tax Impact</h3>
             <p className="text-xs text-[var(--muted)] mb-3">
-              Negative Gearing (2024-25 rates + 2% Medicare)
+              {taxBenefitsEnabled
+                ? "Negative Gearing (2024-25 rates + 2% Medicare)"
+                : "Negative Gearing & CGT Discount DISABLED (2024-25 rates + 2% Medicare)"}
             </p>
             <Table
               rows={[
@@ -968,7 +1004,7 @@ function Home() {
               <Table
                 rows={[
                   ["P&I Repayment", fmt(r.ppor.monthlyPI)],
-                  ["Council + Water", fmt(MONTHLY_COUNCIL_WATER)],
+                  ["Council + Water", fmt(r.ppor.monthlyCouncilWater)],
                   ...(r.ppor.monthlyStrata > 0
                     ? [["Strata fees", fmt(r.ppor.monthlyStrata)] as [string, string]]
                     : []),
@@ -1029,13 +1065,6 @@ function Home() {
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
             <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
-              Net Yield
-              <InfoTip text="Net Operating Income (after property expenses but before debt service) as a percentage of purchase price. Also known as cap rate." />
-            </div>
-            <div className="text-xl font-bold tabular-nums">{pctFmt(r.netYield)}</div>
-          </div>
-          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
-            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
               NOI (yearly)
               <InfoTip text="Net Operating Income. Annual rental income minus property expenses (agent fees, insurance/strata, council, water) but before interest and tax. The core profitability of the property itself." />
             </div>
@@ -1045,20 +1074,29 @@ function Home() {
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
             <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
-              Cash-on-Cash
-              <InfoTip text="After-tax annual cash flow divided by total cash invested (deposit + upfront costs). Measures the return on your actual out-of-pocket investment." />
+              Weekly Cash Flow
+              <InfoTip text="After-tax net cash flow divided by 52. Positive = property pays you each week; negative = out-of-pocket per week to hold." />
             </div>
-            <div className={`text-xl font-bold tabular-nums ${r.cashOnCash >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-              {pctFmt(r.cashOnCash)}
+            <div className={`text-xl font-bold tabular-nums ${r.weeklyOutOfPocket >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+              {signedFmt(r.weeklyOutOfPocket)}
             </div>
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
             <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
-              DSCR
-              <InfoTip text="Debt Service Coverage Ratio. NOI divided by annual interest payments. Above 1.0x means rental income covers debt costs; below 1.0x means it doesn't. Lenders typically require 1.2x+." />
+              Equity @ Year 5
+              <InfoTip text="Projected property value minus remaining loan balance after 5 years, assuming the capital growth rate in the sidebar." />
             </div>
-            <div className={`text-xl font-bold tabular-nums ${r.dscr >= 1 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-              {r.dscr.toFixed(2)}x
+            <div className="text-xl font-bold tabular-nums">
+              {fmt(r.tenYearData[5]?.equity ?? 0)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Unrecoverable Costs
+              <InfoTip text="Upfront costs that don't become equity: stamp duty, LMI, buyer's agent, legal & govt fees. Sunk costs you pay just to buy. Deposit excluded — that becomes equity." />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--negative)]">
+              {fmt(r.unrecoverableUpfront)}
             </div>
           </div>
         </div>

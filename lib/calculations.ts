@@ -191,7 +191,8 @@ export function computeBreakeven(
   capitaliseLMI: boolean,
   yearlyStrata: number,
   isApartment: boolean,
-  yearlyLandTax: number = 0
+  yearlyLandTax: number = 0,
+  taxBenefitsEnabled: boolean = true,
 ): number | null {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
@@ -199,7 +200,7 @@ export function computeBreakeven(
   const yearlyRentalIncome = weeklyRental * 52;
   const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
-  const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+  const yearlyCouncilWater = price > 0 ? MONTHLY_COUNCIL_WATER * 12 : 0;
   const yearlyInterest = monthlyInterest * 12;
   const yearlyRent = weeklyRent * 52;
   const yearlyPreTax =
@@ -220,7 +221,7 @@ export function computeBreakeven(
     yearlyStrata -
     yearlyLandTax -
     yearlyInterest;
-  const deductibleLoss = Math.max(0, -propertyNet);
+  const deductibleLoss = taxBenefitsEnabled ? Math.max(0, -propertyNet) : 0;
 
   const taxWithout = calcTaxWithMedicare(income);
   const taxWith = calcTaxWithMedicare(income - deductibleLoss);
@@ -228,6 +229,7 @@ export function computeBreakeven(
   const yearlyAfterTax = yearlyPreTax + taxSaving;
 
   const baseTaxableIncome = income - deductibleLoss;
+  const cgtInclusion = taxBenefitsEnabled ? 0.5 : 1.0;
 
   const steps = 301;
   let prevNet: number | null = null;
@@ -236,7 +238,7 @@ export function computeBreakeven(
   for (let i = 0; i < steps; i++) {
     const appRate = (i / (steps - 1)) * 20;
     const yearlyApp = price * (appRate / 100);
-    const taxableCG = yearlyApp * 0.5;
+    const taxableCG = yearlyApp * cgtInclusion;
     const taxWithCGT = calcTaxWithMedicare(baseTaxableIncome + taxableCG);
     const taxWithoutCGT = calcTaxWithMedicare(baseTaxableIncome);
     const cgtOwed = taxWithCGT - taxWithoutCGT;
@@ -300,11 +302,12 @@ export function compute10YearProjection(
   rentalGrowthRate: number,
   yearlyLandTax: number = 0,
   loanType: "IO" | "PI" = "IO",
+  taxBenefitsEnabled: boolean = true,
 ): YearlyCashFlow[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
-  const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+  const yearlyCouncilWater = price > 0 ? MONTHLY_COUNCIL_WATER * 12 : 0;
 
   // Compute amortisation schedule for P&I mode
   const amortisation = loanType === "PI" ? computeAmortisationSchedule(mortgage, rate) : null;
@@ -362,7 +365,7 @@ export function compute10YearProjection(
       yearlyStrata -
       yearlyLandTax -
       yearlyInterest;
-    const deductibleLoss = Math.max(0, -propertyNet);
+    const deductibleLoss = taxBenefitsEnabled ? Math.max(0, -propertyNet) : 0;
     const taxSaving =
       calcTaxWithMedicare(income) -
       calcTaxWithMedicare(income - deductibleLoss);
@@ -472,13 +475,14 @@ export function computeRateStressTest(
   yearlyStrata: number,
   isApartment: boolean,
   yearlyLandTax: number = 0,
+  taxBenefitsEnabled: boolean = true,
 ): RateStressPoint[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
   const yearlyRentalIncome = weeklyRental * 52;
   const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
-  const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+  const yearlyCouncilWater = price > 0 ? MONTHLY_COUNCIL_WATER * 12 : 0;
   const yearlyRent = weeklyRent * 52;
 
   const results: RateStressPoint[] = [];
@@ -503,7 +507,7 @@ export function computeRateStressTest(
       yearlyStrata -
       yearlyLandTax -
       yearlyInterest;
-    const deductibleLoss = Math.max(0, -propertyNet);
+    const deductibleLoss = taxBenefitsEnabled ? Math.max(0, -propertyNet) : 0;
     const taxSaving =
       calcTaxWithMedicare(income) -
       calcTaxWithMedicare(income - deductibleLoss);
@@ -533,6 +537,7 @@ export function computeBreakevenVsRate(
   yearlyStrata: number,
   isApartment: boolean,
   yearlyLandTax: number = 0,
+  taxBenefitsEnabled: boolean = true,
 ): { rate: number; breakeven: number }[] {
   const results: { rate: number; breakeven: number }[] = [];
   for (let r = 200; r <= 1000; r += 25) {
@@ -540,6 +545,7 @@ export function computeBreakevenVsRate(
     const be = computeBreakeven(
       price, weeklyRental, weeklyRent, income, rateDecimal,
       depositPct, capitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
+      taxBenefitsEnabled,
     );
     if (be !== null) {
       results.push({ rate: rateDecimal, breakeven: Math.round(be * 100) / 100 });
@@ -561,6 +567,7 @@ export function computeCoCVsDeposit(
   stampDuty: number,
   buyerAgentFee: number,
   yearlyLandTax: number = 0,
+  taxBenefitsEnabled: boolean = true,
 ): { deposit: number; coc: number; upfront: number }[] {
   const results: { deposit: number; coc: number; upfront: number }[] = [];
   for (let dp = 5; dp <= 30; dp++) {
@@ -571,7 +578,7 @@ export function computeCoCVsDeposit(
     const yearlyRentalIncome = weeklyRental * 52;
     const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
     const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
-    const yearlyCouncilWater = MONTHLY_COUNCIL_WATER * 12;
+    const yearlyCouncilWater = price > 0 ? MONTHLY_COUNCIL_WATER * 12 : 0;
     const yearlyRent = weeklyRent * 52;
     const yearlyPreTax =
       yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
@@ -580,7 +587,7 @@ export function computeCoCVsDeposit(
     const propertyNet =
       yearlyRentalIncome - yearlyRentalAgentFee - yearlyInsurance -
       yearlyCouncilWater - yearlyStrata - yearlyLandTax - yearlyInterest;
-    const deductibleLoss = Math.max(0, -propertyNet);
+    const deductibleLoss = taxBenefitsEnabled ? Math.max(0, -propertyNet) : 0;
     const taxSaving = calcTaxWithMedicare(income) - calcTaxWithMedicare(income - deductibleLoss);
     const yearlyAfterTax = yearlyPreTax + taxSaving;
 
