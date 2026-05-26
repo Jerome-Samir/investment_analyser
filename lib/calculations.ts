@@ -76,6 +76,7 @@ export function computeAmortisationSchedule(
   loanAmount: number,
   annualRate: number,
   termYears: number = 30,
+  offsetBalance: number = 0,
 ): AmortisationYear[] {
   const monthlyPayment = calcMonthlyPI(loanAmount, annualRate, termYears);
   const results: AmortisationYear[] = [];
@@ -85,7 +86,8 @@ export function computeAmortisationSchedule(
     let yearlyPrincipal = 0;
     let yearlyInterest = 0;
     for (let m = 0; m < 12; m++) {
-      const monthInterest = balance * (annualRate / 100 / 12);
+      const interestBearing = Math.max(0, balance - offsetBalance);
+      const monthInterest = interestBearing * (annualRate / 100 / 12);
       const monthPrincipal = monthlyPayment - monthInterest;
       yearlyPrincipal += monthPrincipal;
       yearlyInterest += monthInterest;
@@ -193,10 +195,11 @@ export function computeBreakeven(
   isApartment: boolean,
   yearlyLandTax: number = 0,
   taxBenefitsEnabled: boolean = true,
+  offsetBalance: number = 0,
 ): number | null {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
-  const monthlyInterest = (mortgage * (rate / 100)) / 12;
+  const monthlyInterest = (Math.max(0, mortgage - offsetBalance) * (rate / 100)) / 12;
   const yearlyRentalIncome = weeklyRental * 52;
   const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
@@ -303,6 +306,7 @@ export function compute10YearProjection(
   yearlyLandTax: number = 0,
   loanType: "IO" | "PI" = "IO",
   taxBenefitsEnabled: boolean = true,
+  offsetBalance: number = 0,
 ): YearlyCashFlow[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
@@ -310,7 +314,7 @@ export function compute10YearProjection(
   const yearlyCouncilWater = price > 0 ? MONTHLY_COUNCIL_WATER * 12 : 0;
 
   // Compute amortisation schedule for P&I mode
-  const amortisation = loanType === "PI" ? computeAmortisationSchedule(mortgage, rate) : null;
+  const amortisation = loanType === "PI" ? computeAmortisationSchedule(mortgage, rate, 30, offsetBalance) : null;
 
   const results: YearlyCashFlow[] = [];
   let cumulativeCash = -totalUpfront;
@@ -341,7 +345,7 @@ export function compute10YearProjection(
     // Interest and principal depend on loan type
     const yearlyInterest = amortisation
       ? amortisation[y - 1].interestPaid
-      : mortgage * (rate / 100);
+      : Math.max(0, mortgage - offsetBalance) * (rate / 100);
     const yearlyPrincipal = amortisation
       ? amortisation[y - 1].principalPaid
       : 0;
@@ -476,9 +480,11 @@ export function computeRateStressTest(
   isApartment: boolean,
   yearlyLandTax: number = 0,
   taxBenefitsEnabled: boolean = true,
+  offsetBalance: number = 0,
 ): RateStressPoint[] {
   const lmi = calcLMI(price, depositPct);
   const mortgage = price * (1 - depositPct / 100) + (capitaliseLMI ? lmi : 0);
+  const interestBearing = Math.max(0, mortgage - offsetBalance);
   const yearlyRentalIncome = weeklyRental * 52;
   const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
   const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
@@ -488,7 +494,7 @@ export function computeRateStressTest(
   const results: RateStressPoint[] = [];
   for (let r = 200; r <= 1000; r += 25) {
     const rateDecimal = r / 100;
-    const yearlyInterest = mortgage * (rateDecimal / 100);
+    const yearlyInterest = interestBearing * (rateDecimal / 100);
     const yearlyPreTax =
       yearlyRentalIncome -
       yearlyRentalAgentFee -
@@ -538,6 +544,7 @@ export function computeBreakevenVsRate(
   isApartment: boolean,
   yearlyLandTax: number = 0,
   taxBenefitsEnabled: boolean = true,
+  offsetBalance: number = 0,
 ): { rate: number; breakeven: number }[] {
   const results: { rate: number; breakeven: number }[] = [];
   for (let r = 200; r <= 1000; r += 25) {
@@ -545,7 +552,7 @@ export function computeBreakevenVsRate(
     const be = computeBreakeven(
       price, weeklyRental, weeklyRent, income, rateDecimal,
       depositPct, capitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-      taxBenefitsEnabled,
+      taxBenefitsEnabled, offsetBalance,
     );
     if (be !== null) {
       results.push({ rate: rateDecimal, breakeven: Math.round(be * 100) / 100 });
@@ -568,13 +575,14 @@ export function computeCoCVsDeposit(
   buyerAgentFee: number,
   yearlyLandTax: number = 0,
   taxBenefitsEnabled: boolean = true,
+  offsetBalance: number = 0,
 ): { deposit: number; coc: number; upfront: number }[] {
   const results: { deposit: number; coc: number; upfront: number }[] = [];
   for (let dp = 5; dp <= 30; dp++) {
     const dpLmi = calcLMI(price, dp);
     const effectiveCap = dp < 20 ? capitaliseLMI : false;
     const dpMortgage = price * (1 - dp / 100) + (effectiveCap ? dpLmi : 0);
-    const yearlyInterest = dpMortgage * (rate / 100);
+    const yearlyInterest = Math.max(0, dpMortgage - offsetBalance) * (rate / 100);
     const yearlyRentalIncome = weeklyRental * 52;
     const yearlyRentalAgentFee = yearlyRentalIncome * 0.07;
     const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;

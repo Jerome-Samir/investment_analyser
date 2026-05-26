@@ -205,6 +205,7 @@ function Home() {
   const [weeklyRental, setWeeklyRental] = useState(500);
   const [weeklyRent, setWeeklyRent] = useState(0);
   const [income, setIncome] = useState(100_000);
+  const [offsetBalance, setOffsetBalance] = useState(0);
   const [rate, setRate] = useState(6.1);
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
@@ -217,7 +218,7 @@ function Home() {
   const [mode, setMode] = useState<"Investment" | "PPOR">("Investment");
   const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
   const [etfReturnRate, setEtfReturnRate] = useState(8);
-  const [taxBenefitsEnabled, setTaxBenefitsEnabled] = useState(true);
+  const [taxBenefitsEnabled, setTaxBenefitsEnabled] = useState(false);
   const [rbaDate, setRbaDate] = useState<string | null>(null);
   const [rbaRates, setRbaRates] = useState<{ ownerOccupier: number; investor: number } | null>(null);
 
@@ -265,7 +266,8 @@ function Home() {
     const lmi = calcLMI(price, depositPct);
     const effectiveCapitaliseLMI = depositPct < 20 ? capitaliseLMI : false;
     const mortgage = price * (1 - depositPct / 100) + (effectiveCapitaliseLMI ? lmi : 0);
-    const monthlyInterest = (mortgage * (rate / 100)) / 12;
+    const effectiveInterestBearing = Math.max(0, mortgage - offsetBalance);
+    const monthlyInterest = (effectiveInterestBearing * (rate / 100)) / 12;
     const monthlyRental = (weeklyRental * 52) / 12;
     const monthlyRentalAgentFee = monthlyRental * 0.07;
     const yearlyInsurance = isApartment ? 0 : price > 0 ? 2_000 : 0;
@@ -376,7 +378,7 @@ function Home() {
       const be = computeBreakeven(
         price, weeklyRental, wr, income, rate, depositPct,
         effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-        effectiveTaxBenefits,
+        effectiveTaxBenefits, offsetBalance,
       );
       if (be !== null) rdData.push({ rentDiff: Math.round(rd), breakeven: Math.round(be * 100) / 100 });
     }
@@ -390,7 +392,7 @@ function Home() {
       const be = computeBreakeven(
         pp, weeklyRental, weeklyRent, income, rate, depositPct,
         effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-        effectiveTaxBenefits,
+        effectiveTaxBenefits, offsetBalance,
       );
       if (be !== null) ppData.push({ price: Math.round(pp), breakeven: Math.round(be * 100) / 100 });
     }
@@ -400,7 +402,7 @@ function Home() {
     const depData = depRange.map((dp) => {
       const dpLmi = calcLMI(price, dp);
       const dpMortgage = price * (1 - dp / 100) + (effectiveCapitaliseLMI ? dpLmi : 0);
-      const dpMonthlyInterest = (dpMortgage * (rate / 100)) / 12;
+      const dpMonthlyInterest = (Math.max(0, dpMortgage - offsetBalance) * (rate / 100)) / 12;
       const dpYearlyInterest = dpMonthlyInterest * 12;
       const dpYearlyPreTax =
         yearlyRentalIncome -
@@ -439,7 +441,7 @@ function Home() {
       const be = computeBreakeven(
         price, weeklyRental, weeklyRent, income, rate, dp,
         effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-        effectiveTaxBenefits,
+        effectiveTaxBenefits, offsetBalance,
       );
 
       return {
@@ -483,7 +485,7 @@ function Home() {
       price, weeklyRental, weeklyRent, income, rate, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, totalUpfront,
       appreciationRate, rentalGrowthRate, yearlyLandTax, "IO",
-      effectiveTaxBenefits,
+      effectiveTaxBenefits, offsetBalance,
     );
 
     // ETF vs Property comparison
@@ -493,14 +495,14 @@ function Home() {
     const rateStressData = computeRateStressTest(
       price, weeklyRental, weeklyRent, income, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-      effectiveTaxBenefits,
+      effectiveTaxBenefits, offsetBalance,
     );
 
     // Break-even vs interest rate
     const beVsRateData = computeBreakevenVsRate(
       price, weeklyRental, weeklyRent, income, depositPct,
       effectiveCapitaliseLMI, yearlyStrata, isApartment, yearlyLandTax,
-      effectiveTaxBenefits,
+      effectiveTaxBenefits, offsetBalance,
     );
 
     // Cash-on-cash return vs deposit
@@ -508,7 +510,7 @@ function Home() {
       price, weeklyRental, weeklyRent, income, rate,
       effectiveCapitaliseLMI, yearlyStrata, isApartment,
       stampDuty, effectiveBuyerAgentFee, yearlyLandTax,
-      effectiveTaxBenefits,
+      effectiveTaxBenefits, offsetBalance,
     );
 
     // ─── PPOR Mode Calculations ───
@@ -534,7 +536,7 @@ function Home() {
       const monthlyRunningCosts =
         monthlyPI + monthlyCouncilWaterPPOR + monthlyStrataPPOR + monthlyInsurancePPOR;
 
-      const amortisation = computeAmortisationSchedule(loanPPOR, rate);
+      const amortisation = computeAmortisationSchedule(loanPPOR, rate, 30, offsetBalance);
       const totalInterest30yr = amortisation.reduce((sum, y) => sum + y.interestPaid, 0);
 
       const yearlyRunning =
@@ -652,7 +654,7 @@ function Home() {
       cocVsDepositData,
       ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate, taxBenefitsEnabled]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate, taxBenefitsEnabled, offsetBalance]);
 
   const r = results;
 
@@ -713,6 +715,7 @@ function Home() {
         )}
 
         <NumberInput label="Gross Income (annual, pre-tax)" value={income} onChange={setIncome} step={1_000} prefix="$" />
+        <NumberInput label="Offset Account Balance" value={offsetBalance} onChange={setOffsetBalance} step={1_000} min={0} prefix="$" />
         {mode === "Investment" && (
           <>
             <NumberInput label="Rental Income (weekly)" value={weeklyRental} onChange={setWeeklyRental} step={10} prefix="$" />
