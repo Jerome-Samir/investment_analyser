@@ -792,21 +792,6 @@ function Home() {
 
         {mode === "Investment" && (
           <label className="block mb-1">
-            <span className="text-sm font-medium">ETF Return: {etfReturnRate}% p.a.</span>
-            <input
-              type="range"
-              min={0}
-              max={15}
-              step={0.5}
-              value={etfReturnRate}
-              onChange={(e) => setEtfReturnRate(Number(e.target.value))}
-              className="mt-1"
-            />
-          </label>
-        )}
-
-        {mode === "Investment" && (
-          <label className="block mb-1">
             <span className="text-sm font-medium">Rental Growth: {rentalGrowthRate}% p.a.</span>
             <input
               type="range"
@@ -815,6 +800,21 @@ function Home() {
               step={0.5}
               value={rentalGrowthRate}
               onChange={(e) => setRentalGrowthRate(Number(e.target.value))}
+              className="mt-1"
+            />
+          </label>
+        )}
+
+        {mode === "Investment" && (
+          <label className="block mb-1">
+            <span className="text-sm font-medium">ETF Return: {etfReturnRate}% p.a.</span>
+            <input
+              type="range"
+              min={0}
+              max={15}
+              step={0.5}
+              value={etfReturnRate}
+              onChange={(e) => setEtfReturnRate(Number(e.target.value))}
               className="mt-1"
             />
           </label>
@@ -1162,6 +1162,51 @@ function Home() {
         {/* Charts Row 1 */}
         {mode === "Investment" && (
         <>
+        {/* 10-Year Cash Flow Table */}
+        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
+        <h2 className="text-lg font-semibold mb-4">10-Year Cash Flow Summary</h2>
+        <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)] mb-6">
+          <table className="w-full text-xs md:text-sm border-collapse min-w-[800px]">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
+                <th className="py-2 px-3 text-left font-semibold">Year</th>
+                <th className="py-2 px-3 text-right font-semibold">Rental Income</th>
+                <th className="py-2 px-3 text-right font-semibold">Expenses</th>
+                <th className="py-2 px-3 text-right font-semibold">Interest</th>
+                <th className="py-2 px-3 text-right font-semibold">Tax Benefit</th>
+                <th className="py-2 px-3 text-right font-semibold">Net Cash Flow</th>
+                <th className="py-2 px-3 text-right font-semibold">Cumulative</th>
+                <th className="py-2 px-3 text-right font-semibold">Property Value</th>
+                <th className="py-2 px-3 text-right font-semibold">Loan Balance</th>
+                <th className="py-2 px-3 text-right font-semibold">Equity</th>
+                <th className="py-2 px-3 text-right font-semibold">Total Return</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.tenYearData.map((row) => (
+                <tr key={row.year} className={`border-b border-[var(--border)] ${row.year === 0 ? "bg-[var(--bg)] font-semibold" : ""}`}>
+                  <td className="py-1.5 px-3">{row.year === 0 ? "Purchase" : `Year ${row.year}`}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.rentalIncome)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.expenses)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.interest)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.taxBenefit)}</td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.netCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.netCashFlow)}
+                  </td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.cumulativeCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.cumulativeCashFlow)}
+                  </td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.propertyValue)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.loanBalance)}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.equity)}</td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${row.totalReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.totalReturn)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <hr className="mb-4 md:mb-6 border-[var(--border)]" />
         <h2 className="text-lg font-semibold mb-4">Break-Even Sensitivity Analysis</h2>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -1711,51 +1756,6 @@ function Home() {
           </div>
         </div>
 
-        {/* 10-Year Cash Flow Table */}
-        <hr className="mb-4 md:mb-6 border-[var(--border)]" />
-        <h2 className="text-lg font-semibold mb-4">10-Year Cash Flow Summary</h2>
-        <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)] mb-6">
-          <table className="w-full text-xs md:text-sm border-collapse min-w-[800px]">
-            <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg)]">
-                <th className="py-2 px-3 text-left font-semibold">Year</th>
-                <th className="py-2 px-3 text-right font-semibold">Rental Income</th>
-                <th className="py-2 px-3 text-right font-semibold">Expenses</th>
-                <th className="py-2 px-3 text-right font-semibold">Interest</th>
-                <th className="py-2 px-3 text-right font-semibold">Tax Benefit</th>
-                <th className="py-2 px-3 text-right font-semibold">Net Cash Flow</th>
-                <th className="py-2 px-3 text-right font-semibold">Cumulative</th>
-                <th className="py-2 px-3 text-right font-semibold">Property Value</th>
-                <th className="py-2 px-3 text-right font-semibold">Loan Balance</th>
-                <th className="py-2 px-3 text-right font-semibold">Equity</th>
-                <th className="py-2 px-3 text-right font-semibold">Total Return</th>
-              </tr>
-            </thead>
-            <tbody>
-              {r.tenYearData.map((row) => (
-                <tr key={row.year} className={`border-b border-[var(--border)] ${row.year === 0 ? "bg-[var(--bg)] font-semibold" : ""}`}>
-                  <td className="py-1.5 px-3">{row.year === 0 ? "Purchase" : `Year ${row.year}`}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.rentalIncome)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.expenses)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.interest)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.taxBenefit)}</td>
-                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.netCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-                    {signedFmt(row.netCashFlow)}
-                  </td>
-                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.cumulativeCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-                    {signedFmt(row.cumulativeCashFlow)}
-                  </td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.propertyValue)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.loanBalance)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.equity)}</td>
-                  <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${row.totalReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
-                    {signedFmt(row.totalReturn)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
         </>
         )}
 
