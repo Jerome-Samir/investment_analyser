@@ -55,6 +55,7 @@ function NumberInput({
   min = 0,
   prefix,
   suffix,
+  hint,
 }: {
   label: string;
   value: number;
@@ -63,6 +64,7 @@ function NumberInput({
   min?: number;
   prefix?: string;
   suffix?: string;
+  hint?: React.ReactNode;
 }) {
   return (
     <label className="block mb-3">
@@ -87,6 +89,9 @@ function NumberInput({
           </span>
         )}
       </div>
+      {hint && (
+        <span className="mt-1 block text-xs text-[var(--muted)]">{hint}</span>
+      )}
     </label>
   );
 }
@@ -202,22 +207,22 @@ function Home() {
   const [price, setPrice] = useState(700_000);
   const [depositPct, setDepositPct] = useState(20);
   const [capitaliseLMI, setCapitaliseLMI] = useState(true);
-  const [weeklyRental, setWeeklyRental] = useState(500);
+  const [weeklyRental, setWeeklyRental] = useState(0);
   const [weeklyRent, setWeeklyRent] = useState(0);
-  const [income, setIncome] = useState(100_000);
+  const [income, setIncome] = useState(110_000);
   const [offsetBalance, setOffsetBalance] = useState(0);
   const [rate, setRate] = useState(6.1);
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
-  const [buyerAgentFee, setBuyerAgentFee] = useState(14_000);
+  const [buyerAgentFee, setBuyerAgentFee] = useState(14_500);
   const [includeBuyerAgent, setIncludeBuyerAgent] = useState(true);
   const [stampDuty, setStampDuty] = useState(() => calcStampDutyNSW(700_000));
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [appreciationRate, setAppreciationRate] = useState(4);
+  const [appreciationRate, setAppreciationRate] = useState(7);
   const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
   const [mode, setMode] = useState<"Investment" | "PPOR">("Investment");
   const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
-  const [etfReturnRate, setEtfReturnRate] = useState(8);
+  const [etfReturnRate, setEtfReturnRate] = useState(10);
   const [taxBenefitsEnabled, setTaxBenefitsEnabled] = useState(false);
   const [rbaDate, setRbaDate] = useState<string | null>(null);
   const [rbaRates, setRbaRates] = useState<{ ownerOccupier: number; investor: number } | null>(null);
@@ -714,7 +719,7 @@ function Home() {
           </label>
         )}
 
-        <NumberInput label="Gross Income (annual, pre-tax)" value={income} onChange={setIncome} step={1_000} prefix="$" />
+        <NumberInput label="Gross Income (annual, pre-tax)" value={income} onChange={setIncome} step={1_000} prefix="$" hint={`Post-tax: ${fmt(income - calcTaxWithMedicare(income))}`} />
         <NumberInput label="Offset Account Balance" value={offsetBalance} onChange={setOffsetBalance} step={1_000} min={0} prefix="$" />
         {mode === "Investment" && (
           <>
@@ -777,7 +782,7 @@ function Home() {
           <input
             type="range"
             min={0}
-            max={10}
+            max={20}
             step={0.5}
             value={appreciationRate}
             onChange={(e) => setAppreciationRate(Number(e.target.value))}
