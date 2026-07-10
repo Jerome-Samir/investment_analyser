@@ -203,6 +203,12 @@ function dollarFormatter(value: number) {
 
 // ─── Main Page ───
 
+// Default bank interest rate by mode (user can override in the input)
+const DEFAULT_RATE_INVESTMENT = 6.37;
+const DEFAULT_RATE_PPOR = 6.0;
+const defaultRateFor = (mode: "Investment" | "PPOR") =>
+  mode === "PPOR" ? DEFAULT_RATE_PPOR : DEFAULT_RATE_INVESTMENT;
+
 function Home() {
   const [price, setPrice] = useState(700_000);
   const [depositPct, setDepositPct] = useState(20);
@@ -211,12 +217,13 @@ function Home() {
   const [weeklyRent, setWeeklyRent] = useState(0);
   const [income, setIncome] = useState(110_000);
   const [offsetBalance, setOffsetBalance] = useState(0);
-  const [rate, setRate] = useState(6.1);
+  const [rate, setRate] = useState(DEFAULT_RATE_INVESTMENT); // mode defaults to "Investment"
   const [propertyType, setPropertyType] = useState<"House" | "Apartment">("House");
   const [quarterlyStrata, setQuarterlyStrata] = useState(1_500);
   const [buyerAgentFee, setBuyerAgentFee] = useState(14_500);
   const [includeBuyerAgent, setIncludeBuyerAgent] = useState(true);
   const [stampDuty, setStampDuty] = useState(() => calcStampDutyNSW(700_000));
+  const [includeStampDuty, setIncludeStampDuty] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appreciationRate, setAppreciationRate] = useState(7);
   const [rentalGrowthRate, setRentalGrowthRate] = useState(3);
@@ -224,39 +231,17 @@ function Home() {
   const [isFirstHomeBuyer, setIsFirstHomeBuyer] = useState(false);
   const [etfReturnRate, setEtfReturnRate] = useState(10);
   const [taxBenefitsEnabled, setTaxBenefitsEnabled] = useState(false);
-  const [rbaDate, setRbaDate] = useState<string | null>(null);
-  const [rbaRates, setRbaRates] = useState<{ ownerOccupier: number; investor: number } | null>(null);
 
+  // Reset the interest rate to the mode's default when switching modes (user can still override)
   useEffect(() => {
-    fetch("/api/rates")
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => {
-        if (data && !data.error) {
-          setRbaRates({ ownerOccupier: data.ownerOccupier, investor: data.investor });
-          setRate(mode === "PPOR" ? data.ownerOccupier : data.investor);
-          setRbaDate(data.asOf);
-        }
-      })
-      .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update rate when switching modes if RBA rates are loaded
-  useEffect(() => {
-    if (rbaRates) {
-      setRate(mode === "PPOR" ? rbaRates.ownerOccupier : rbaRates.investor);
-    }
-  }, [mode, rbaRates]);
+    setRate(defaultRateFor(mode));
+  }, [mode]);
 
   // Recompute stamp duty default when price / FHB / mode changes (user can still override after)
   useEffect(() => {
     const useFHBAS = mode === "PPOR" && isFirstHomeBuyer;
     setStampDuty(useFHBAS ? calcStampDutyNSW_FHBAS(price) : calcStampDutyNSW(price));
   }, [price, mode, isFirstHomeBuyer]);
-
-  // Recompute buyer's agent fee default (2% of price) when price changes
-  useEffect(() => {
-    setBuyerAgentFee(Math.round(price * 0.02));
-  }, [price]);
 
   const results = useMemo(() => {
     const isApartment = propertyType === "Apartment";
@@ -313,9 +298,10 @@ function Home() {
     const deposit = (price * depositPct) / 100;
     const lmiUpfront = effectiveCapitaliseLMI ? 0 : lmi;
     const effectiveBuyerAgentFee = includeBuyerAgent ? buyerAgentFee : 0;
+    const effectiveStampDuty = includeStampDuty ? stampDuty : 0;
     const totalUpfront =
       deposit +
-      stampDuty +
+      effectiveStampDuty +
       lmiUpfront +
       effectiveBuyerAgentFee +
       MORTGAGE_REGISTRATION_FEE +
@@ -520,8 +506,8 @@ function Home() {
 
     // ─── PPOR Mode Calculations ───
     const ppor = (() => {
-      // Use user-editable stamp duty from state (already synced via useEffect)
-      const stampDutyPPOR = stampDuty;
+      // Use user-editable stamp duty from state (already synced via useEffect); respects the include toggle
+      const stampDutyPPOR = effectiveStampDuty;
       const lmiPPOR = calcLMI(price, depositPct);
       const effectiveCapPPOR = depositPct < 20 ? capitaliseLMI : false;
       const loanPPOR = price * (1 - depositPct / 100) + (effectiveCapPPOR ? lmiPPOR : 0);
@@ -652,6 +638,7 @@ function Home() {
       unrecoverableUpfront,
       lvr,
       noi,
+      yearlyInterest,
       tenYearData,
       etfComparison,
       rateStressData,
@@ -659,7 +646,7 @@ function Home() {
       cocVsDepositData,
       ppor,
     };
-  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate, taxBenefitsEnabled, offsetBalance]);
+  }, [price, depositPct, capitaliseLMI, weeklyRental, weeklyRent, income, rate, propertyType, quarterlyStrata, buyerAgentFee, includeBuyerAgent, stampDuty, includeStampDuty, appreciationRate, rentalGrowthRate, mode, isFirstHomeBuyer, etfReturnRate, taxBenefitsEnabled, offsetBalance]);
 
   const r = results;
 
@@ -728,11 +715,6 @@ function Home() {
           </>
         )}
         <NumberInput label="Bank Interest Rate (annual)" value={rate} onChange={setRate} step={0.01} min={0} suffix="%" />
-        {rbaDate && (
-          <p className="text-[10px] text-[var(--muted)] -mt-2 mb-3">
-            RBA avg. discounted variable rate as of {rbaDate}
-          </p>
-        )}
 
         {mode === "PPOR" && (
           <label className="flex items-center gap-2 mb-3 text-sm cursor-pointer">
@@ -853,7 +835,14 @@ function Home() {
               rows={[
                 [`Deposit (${depositPct}%)`, fmt(r.deposit)],
                 [
-                  "Stamp (transfer) Duty (NSW)",
+                  <label key="sd-label" className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeStampDuty}
+                      onChange={(e) => setIncludeStampDuty(e.target.checked)}
+                    />
+                    Stamp (transfer) Duty
+                  </label>,
                   <InlineNumber
                     key="sd-inv"
                     value={Math.round(stampDuty)}
@@ -861,6 +850,7 @@ function Home() {
                     step={100}
                     prefix="$"
                     width="w-24"
+                    disabled={!includeStampDuty}
                   />,
                 ],
                 ...(r.lmi > 0
@@ -970,11 +960,18 @@ function Home() {
                 rows={[
                   [`Deposit (${depositPct}%)`, fmt(r.ppor.deposit)],
                   [
-                    isFirstHomeBuyer && price <= 800_000
-                      ? "Stamp Duty (FHBAS exempt)"
-                      : isFirstHomeBuyer && price <= 1_000_000
-                        ? "Stamp Duty (FHBAS concessional)"
-                        : "Stamp Duty (NSW)",
+                    <label key="sd-ppor-label" className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeStampDuty}
+                        onChange={(e) => setIncludeStampDuty(e.target.checked)}
+                      />
+                      {isFirstHomeBuyer && price <= 800_000
+                        ? "Stamp Duty (FHBAS exempt)"
+                        : isFirstHomeBuyer && price <= 1_000_000
+                          ? "Stamp Duty (FHBAS concessional)"
+                          : "Stamp Duty"}
+                    </label>,
                     <InlineNumber
                       key="sd-ppor"
                       value={Math.round(stampDuty)}
@@ -982,6 +979,7 @@ function Home() {
                       step={100}
                       prefix="$"
                       width="w-24"
+                      disabled={!includeStampDuty}
                     />,
                   ],
                   ...(r.ppor.lmi > 0
@@ -1063,10 +1061,10 @@ function Home() {
 
         {/* Investment Metrics */}
         {mode === "Investment" && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
             <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
-              Gross Yield
+              Rental Yield
               <InfoTip text="Annual rental income as a percentage of the property purchase price, before any expenses. A quick gauge of income return." />
             </div>
             <div className="text-xl font-bold tabular-nums">{pctFmt(r.grossYield)}</div>
@@ -1078,6 +1076,15 @@ function Home() {
             </div>
             <div className={`text-xl font-bold tabular-nums ${r.noi >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
               {fmt(r.noi)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
+            <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Interest (yearly)
+              <InfoTip text="Annual interest paid to the lender in year one. On an interest-only loan this is your full holding cost of borrowing; it excludes any principal repayments." />
+            </div>
+            <div className="text-xl font-bold tabular-nums text-[var(--negative)]">
+              {fmt(r.yearlyInterest)}
             </div>
           </div>
           <div className="rounded-lg border border-[var(--border)] p-3 md:p-4 bg-[var(--card)]">
@@ -1172,14 +1179,13 @@ function Home() {
                 <th className="py-2 px-3 text-left font-semibold">Year</th>
                 <th className="py-2 px-3 text-right font-semibold">Rental Income</th>
                 <th className="py-2 px-3 text-right font-semibold">Expenses</th>
-                <th className="py-2 px-3 text-right font-semibold">Interest</th>
-                <th className="py-2 px-3 text-right font-semibold">Tax Benefit</th>
+                {taxBenefitsEnabled && <th className="py-2 px-3 text-right font-semibold">Tax Benefit</th>}
                 <th className="py-2 px-3 text-right font-semibold">Net Cash Flow</th>
                 <th className="py-2 px-3 text-right font-semibold">Cumulative</th>
                 <th className="py-2 px-3 text-right font-semibold">Property Value</th>
-                <th className="py-2 px-3 text-right font-semibold">Loan Balance</th>
                 <th className="py-2 px-3 text-right font-semibold">Equity</th>
                 <th className="py-2 px-3 text-right font-semibold">Total Return</th>
+                <th className="py-2 px-3 text-right font-semibold">Profit if Sold</th>
               </tr>
             </thead>
             <tbody>
@@ -1188,8 +1194,7 @@ function Home() {
                   <td className="py-1.5 px-3">{row.year === 0 ? "Purchase" : `Year ${row.year}`}</td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.rentalIncome)}</td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.expenses)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.interest)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.taxBenefit)}</td>
+                  {taxBenefitsEnabled && <td className="py-1.5 px-3 text-right tabular-nums">{row.year === 0 ? "—" : fmt(row.taxBenefit)}</td>}
                   <td className={`py-1.5 px-3 text-right tabular-nums ${row.netCashFlow >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
                     {signedFmt(row.netCashFlow)}
                   </td>
@@ -1197,8 +1202,10 @@ function Home() {
                     {signedFmt(row.cumulativeCashFlow)}
                   </td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.propertyValue)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.loanBalance)}</td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{fmt(row.equity)}</td>
+                  <td className={`py-1.5 px-3 text-right tabular-nums ${row.grossReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
+                    {signedFmt(row.grossReturn)}
+                  </td>
                   <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${row.totalReturn >= 0 ? "text-[var(--positive)]" : "text-[var(--negative)]"}`}>
                     {signedFmt(row.totalReturn)}
                   </td>
@@ -1491,10 +1498,10 @@ function Home() {
             </p>
           </div>
 
-          {/* Total Return (Cash Flow + Capital Gains) */}
+          {/* Profit if Sold (Cash Flow + Equity − CGT) */}
           <div>
             <h4 className="text-sm font-semibold text-center mb-2">
-              Total Return (Cash + Capital Gains)
+              Profit if Sold Today (after CGT)
             </h4>
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={r.tenYearData.filter(d => d.year > 0)}>
@@ -1517,11 +1524,11 @@ function Home() {
                 <Legend verticalAlign="top" height={36} />
                 <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="4 4" />
                 <Bar dataKey="cumulativeCashFlow" name="Cumulative Cash" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                <Line type="monotone" dataKey="totalReturn" name="Total Return" stroke="#16a34a" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="totalReturn" name="Profit if Sold" stroke="#16a34a" strokeWidth={2.5} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
             <p className="text-xs text-[var(--muted)] text-center mt-1">
-              Year 10 total return: {signedFmt(r.tenYearData[10]?.totalReturn ?? 0)}
+              Year 10 profit if sold: {signedFmt(r.tenYearData[10]?.totalReturn ?? 0)}
             </p>
           </div>
         </div>

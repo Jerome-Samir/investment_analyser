@@ -287,7 +287,8 @@ export interface YearlyCashFlow {
   propertyValue: number;
   loanBalance: number;
   equity: number;
-  totalReturn: number;
+  grossReturn: number; // cumulative cash flow + capital gain (before CGT / equity from deposit & principal)
+  totalReturn: number; // profit if sold today: equity + cumulative cash flow − CGT
 }
 
 export function compute10YearProjection(
@@ -332,7 +333,10 @@ export function compute10YearProjection(
     propertyValue: price,
     loanBalance: mortgage,
     equity: price - mortgage,
-    totalReturn: -totalUpfront,
+    // Total return: cumulative cash + capital gain (none yet at purchase)
+    grossReturn: cumulativeCash,
+    // Profit if sold today: sale proceeds (equity) + cash to date, no capital gain yet so no CGT
+    totalReturn: (price - mortgage) + cumulativeCash,
   });
 
   for (let y = 1; y <= 10; y++) {
@@ -386,6 +390,14 @@ export function compute10YearProjection(
     const propertyValue = price * Math.pow(1 + appreciationRate / 100, y);
     const equity = propertyValue - loanBalance;
 
+    // Profit if sold today = sale proceeds (equity) + cumulative cash flow − CGT on the gain.
+    // Capital gain is taxed at the investor's marginal rate; 50% CGT discount applied when tax benefits are on.
+    const capitalGain = Math.max(0, propertyValue - price);
+    const taxableGain = capitalGain * (taxBenefitsEnabled ? 0.5 : 1.0);
+    const cgt =
+      calcTaxWithMedicare(income + taxableGain) - calcTaxWithMedicare(income);
+    const profitIfSold = equity + cumulativeCash - cgt;
+
     results.push({
       year: y,
       rentalIncome: Math.round(yearlyRentalIncome),
@@ -398,7 +410,8 @@ export function compute10YearProjection(
       propertyValue: Math.round(propertyValue),
       loanBalance: Math.round(loanBalance),
       equity: Math.round(equity),
-      totalReturn: Math.round(cumulativeCash + (propertyValue - price)),
+      grossReturn: Math.round(cumulativeCash + (propertyValue - price)),
+      totalReturn: Math.round(profitIfSold),
     });
   }
 
